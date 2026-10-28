@@ -3,9 +3,13 @@
 {% block body %}
 <h2>终端管理</h2>
 <div class="panel">
+  <div class="stat-row">
+    <span class="stat-chip"><span class="stat-lbl">在线设备</span><b id="onlineCnt">-</b></span>
+    <span class="stat-chip"><span class="stat-lbl">设备总数</span><b id="allCnt">-</b></span>
+  </div>
   <p class="hint">根据 DHCP 日志自动维护 MAC 与当前 IP 的对应关系；备注为该终端使用人。最近 1 小时有访问记录视为在线。</p>
   <div class="filterbar">
-    <input id="hKw" placeholder="搜索 备注 / MAC / IP">
+    <input id="hKw" placeholder="搜索 备注 / MAC / IP / 主机名">
     <button id="hSearch">搜索</button>
   </div>
 </div>
@@ -17,6 +21,14 @@
     </tr></thead>
     <tbody id="hostBody"></tbody>
   </table>
+  </div>
+  <div class="row-between" style="margin-top:10px">
+    <span id="hTotal" class="hint"></span>
+    <span class="pager">
+      <button id="hPrev">上一页</button>
+      <span id="hPageInfo"></span>
+      <button id="hNext">下一页</button>
+    </span>
   </div>
 </div>
 {% endblock %}
