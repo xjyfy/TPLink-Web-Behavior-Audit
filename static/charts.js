@@ -85,9 +85,10 @@ const Charts = {
       <div class="lg">${legend}</div></div>`;
   },
 
-  bars(containerId, items, onClick) {
+  bars(containerId, items, onClick, opts) {
     const el = document.getElementById(containerId);
     if (!el) return;
+    opts = opts || {};
     const vals = items.map(i=>i.n);
     const max = Math.max(...vals, 1);
     const min = Math.min(...vals, 0);
@@ -99,10 +100,14 @@ const Charts = {
       // 同色系从上到下由深到浅（蓝色系，第1条最深）
       const light = 35 + (i / Math.max(n-1,1)) * 45; // 35% -> 80%
       const color = `hsl(215, 80%, ${light}%)`;
-      return `<div class="bar-row ${onClick?'clickable':''}" data-k="${(it.k||'').replace(/"/g,'&quot;')}">
+      const k = (it.k||'').replace(/"/g,'&quot;');
+      const iconHtml = opts.showIcons
+        ? `<img src="/app_icon/${encodeURIComponent(it.k||'')}" class="bar-icon" alt="" onerror="this.style.display='none'"> `
+        : '';
+      return `<div class="bar-row ${onClick?'clickable':''}" data-k="${k}">
         <span class="rank">${i+1}</span>
         <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
-        <span class="k" title="${it.k||'(空)'}">${it.k||'(空)'}</span>
+        <span class="k" title="${it.k||'(空)'}">${iconHtml}${it.k||'(空)'}</span>
         <span class="v">${it.n}</span>
       </div>`;
     }).join('');
