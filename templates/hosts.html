@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}终端管理 - 网络日志分析{% endblock %}
+{% block body %}
+<h2>终端管理</h2>
+<div class="panel">
+  <p class="hint">根据 DHCP 日志自动维护 MAC 与当前 IP 的对应关系；备注为该终端使用人。最近 1 小时有访问记录视为在线。</p>
+  <div class="filterbar">
+    <input id="hKw" placeholder="搜索 备注 / MAC / IP">
+    <button id="hSearch">搜索</button>
+  </div>
+</div>
+<div class="panel">
+  <table class="tbl">
+    <thead><tr>
+      <th>使用人备注</th><th>状态</th><th>MAC 地址</th><th>主机名</th><th>当前 IP</th><th>首次出现</th><th>最后在线</th><th>操作</th>
+    </tr></thead>
+    <tbody id="hostBody"></tbody>
+  </table>
+</div>
+{% endblock %}
