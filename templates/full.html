@@ -6,6 +6,7 @@
   <div class="row-between">
     <span>
       <span id="fullTotal"></span>
+      <span id="rangeHint" class="upload-msg"></span>
       <span id="uploadMsg" class="upload-msg"></span>
     </span>
     <span class="pager">
@@ -26,8 +27,17 @@
 const CHART = {{ chart_type|tojson }};
 let pageNum = 1;
 const SIZE = 20;
+// 继承总览页打开时的时间范围（若无则按全量统计）
+const SP = new URLSearchParams(location.search);
+const RANGE = (SP.get('start') && SP.get('end'))
+  ? `&start=${encodeURIComponent(SP.get('start'))}&end=${encodeURIComponent(SP.get('end'))}`
+  : '';
+const rangeHint = document.getElementById('rangeHint');
+if (rangeHint) rangeHint.textContent = RANGE
+  ? `（统计范围：${SP.get('start')} ~ ${SP.get('end')}）`
+  : '（当前为全量统计）';
 function load() {
-  fetch('/api/stats/all/' + CHART + '?page=' + pageNum + '&size=' + SIZE)
+  fetch('/api/stats/all/' + CHART + '?page=' + pageNum + '&size=' + SIZE + RANGE)
     .then(r=>r.json()).then(d => {
       const totalPages = Math.max(1, Math.ceil(d.total / SIZE));
       document.getElementById('fullTotal').textContent = '共 ' + d.total + ' 项';
@@ -42,14 +52,45 @@ function load() {
           : (CHART === 'app_categories'
               ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon" onerror="this.style.display='none'"> `
               : '');
+        const nameCell = (CHART === 'app_categories')
+          ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该类别的具体应用">▸ ${icon}${name}</td>`
+          : `<td>${icon}${name}</td>`;
         return `
         <tr>
           <td>${(d.page-1)*SIZE + i + 1}</td>
-          <td>${icon}${name}</td>
+          ${nameCell}
           <td>${r.n}</td>
         </tr>`;
       }).join('');
+      if (CHART === 'app_categories') bindCatToggles();
     });
+}
+// 应用类别：点击行展开该类别的具体应用
+function bindCatToggles() {
+  const body = document.getElementById('fullBody');
+  body.querySelectorAll('.cat-toggle').forEach(td => {
+    td.onclick = async () => {
+      const cat = td.getAttribute('data-cat');
+      const tr = td.closest('tr');
+      const isOpen = tr.classList.toggle('open');
+      td.innerHTML = (isOpen ? '▾ ' : '▸ ') + td.innerHTML.slice(2);
+      const old = tr.nextElementSibling;
+      if (old && old.classList.contains('cat-detail')) old.remove();
+      if (!isOpen) return;
+      try {
+        const d = await fetch('/api/stats/apps_in_category?category=' + encodeURIComponent(cat) + RANGE).then(r=>r.json());
+        const apps = d.rows || [];
+        const child = document.createElement('tr');
+        child.className = 'cat-detail';
+        child.innerHTML = `<td></td><td colspan="2" style="padding:6px 0 6px 30px;">${
+          apps.length ? apps.map(a =>
+            `<div class="cat-app-row"><span><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${a.k}</span><span>${a.n}</span></div>`
+          ).join('') : '<span style="color:#999">(该类别暂无具体应用数据)</span>'
+        }</td>`;
+        tr.after(child);
+      } catch (err) {}
+    };
+  });
 }
 document.getElementById('prevBtn').onclick = () => { if(pageNum>1){pageNum--;load();} };
 document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
