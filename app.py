@@ -49,6 +49,33 @@ def login_required(fn):
     return wrapper
 
 
+# ---------- 统计结果内存缓存（TTL） ----------
+# 总览/报表的统计是对 logs 大表（数百万行）的聚合查询，逐次重查很慢。
+# 统计结果本身是"近似实时"即可，用进程内 TTL 缓存（默认 10 秒）避免重复聚合。
+_STAT_CACHE = {}
+_STAT_CACHE_LOCK = threading.Lock()
+
+
+def ttl_cache(seconds=10):
+    """装饰器：以 函数名 + 请求参数 为 key，缓存视图返回的数据结果 seconds 秒。
+    仅用于返回 JSON 数据的统计视图；key 含 request.args，可按时间范围/limit 区分。"""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            key = (fn.__name__, tuple(sorted(request.args.items(multi=True))))
+            now = time.time()
+            with _STAT_CACHE_LOCK:
+                hit = _STAT_CACHE.get(key)
+                if hit and now - hit[0] < seconds:
+                    return hit[1]
+            result = fn(*a, **kw)
+            with _STAT_CACHE_LOCK:
+                _STAT_CACHE[key] = (now, result)
+            return result
+        return wrapper
+    return deco
+
+
 # ---------- 页面 ----------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -122,8 +149,9 @@ def full_page(chart_type):
 # ---------- 统计 API ----------
 @app.route('/api/summary')
 @login_required
+@ttl_cache(10)
 def api_summary():
-    return jsonify(db.summary())
+    return db.summary()
 
 
 @app.route('/api/host_metrics')
@@ -342,49 +370,56 @@ def _range():
 
 @app.route('/api/stats/trend')
 @login_required
+@ttl_cache(10)
 def api_trend():
-    return jsonify(db.trend(int(request.args.get('hours', 24))))
+    return db.trend(int(request.args.get('hours', 24)))
 
 
 @app.route('/api/stats/online_trend')
 @login_required
+@ttl_cache(10)
 def api_online_trend():
-    return jsonify(db.online_trend(int(request.args.get('hours', 24))))
+    return db.online_trend(int(request.args.get('hours', 24)))
 
 
 @app.route('/api/stats/hosts')
 @login_required
+@ttl_cache(10)
 def api_stat_hosts():
     s, e = _range()
-    return jsonify(db.top_hosts(int(request.args.get('limit', 10)), s, e))
+    return db.top_hosts(int(request.args.get('limit', 10)), s, e)
 
 
 @app.route('/api/stats/domains')
 @login_required
+@ttl_cache(10)
 def api_domains():
     s, e = _range()
-    return jsonify(db.top_domains(int(request.args.get('limit', 10)), s, e))
+    return db.top_domains(int(request.args.get('limit', 10)), s, e)
 
 
 @app.route('/api/stats/app_categories')
 @login_required
+@ttl_cache(10)
 def api_app_cats():
     s, e = _range()
-    return jsonify(db.app_categories(s, e))
+    return db.app_categories(s, e)
 
 
 @app.route('/api/stats/apps')
 @login_required
+@ttl_cache(10)
 def api_apps():
     s, e = _range()
-    return jsonify(db.top_apps(int(request.args.get('limit', 10)), s, e))
+    return db.top_apps(int(request.args.get('limit', 10)), s, e)
 
 
 @app.route('/api/stats/protocol_top')
 @login_required
+@ttl_cache(10)
 def api_protocol_top():
     s, e = _range()
-    return jsonify(db.protocol_top(s, e))
+    return db.protocol_top(s, e)
 
 
 @app.route('/api/stats/all/<chart_type>')
@@ -406,6 +441,17 @@ def api_stats_all(chart_type):
     total = len(all_rows)
     paged = all_rows[(page-1)*size:page*size]
     return jsonify({'total': total, 'page': page, 'size': size, 'rows': paged})
+
+
+@app.route('/api/stats/apps_in_category')
+@login_required
+def api_apps_in_category():
+    """返回指定应用类别下的具体应用明细（供类别完整列表页点击展开）。"""
+    s, e = _range()
+    cat = request.args.get('category', '')
+    if not cat:
+        return jsonify({'rows': []})
+    return jsonify({'rows': db.apps_by_category(cat, s, e)})
 
 
 # ---------- 日志查询 API ----------
@@ -434,7 +480,9 @@ def api_logs():
 @login_required
 def api_hosts():
     kw = request.args.get('keyword') or None
-    return jsonify(db.list_hosts(kw))
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    return jsonify(db.list_hosts_page(kw, page, size))
 
 
 @app.route('/api/hosts/note', methods=['POST'])
@@ -471,18 +519,22 @@ def api_device_name():
 @login_required
 def api_get_settings():
     days = db.get_setting('keep_days', config.KEEP_DAYS)
-    return jsonify({'keep_days': int(days)})
+    drop = db.get_setting('drop_web_usage', '0')
+    return jsonify({'keep_days': int(days), 'drop_web_usage': str(drop) == '1'})
 
 
 @app.route('/api/settings', methods=['POST'])
 @login_required
 def api_set_settings():
     data = request.get_json(force=True)
-    days = int(data.get('keep_days', 90))
-    if days < 1 or days > 3650:
-        return jsonify({'ok': False, 'error': '保留天数须在 1-3650 之间'}), 400
-    db.set_setting('keep_days', days)
-    return jsonify({'ok': True, 'keep_days': days})
+    if 'keep_days' in data:
+        days = int(data.get('keep_days', 90))
+        if days < 1 or days > 3650:
+            return jsonify({'ok': False, 'error': '保留天数须在 1-3650 之间'}), 400
+        db.set_setting('keep_days', days)
+    if 'drop_web_usage' in data:
+        db.set_setting('drop_web_usage', '1' if data.get('drop_web_usage') else '0')
+    return jsonify({'ok': True})
 
 
 @app.route('/api/restart', methods=['POST'])
@@ -596,6 +648,7 @@ def _prune_loop():
 
 if __name__ == '__main__':
     db.init_db()
+    threading.Thread(target=db.backfill_hourly, daemon=True).start()  # 后台回填 hourly 汇总表
     syslogd.start_async()
     threading.Thread(target=_prune_loop, daemon=True).start()
     print(f"[web] 后台地址 http://localhost:{config.WEB_PORT}")
