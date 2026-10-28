@@ -34,6 +34,15 @@
     <span id="daysResult" class="hint"></span>
   </div>
   <p class="hint">超过保留天数的日志会每小时自动清理。默认 30 天。</p>
+  <div class="filterbar" style="margin-top:14px">
+    <label class="chk" style="align-items:center;gap:8px">
+      <input type="checkbox" id="dropWebUsage" style="width:auto">
+      <span>不保存上网行为日志（开启后，syslog 监听到的"上网行为"类型日志将全部丢弃，不再入库）</span>
+    </label>
+    <button id="saveDropBtn">保存</button>
+    <span id="dropResult" class="hint"></span>
+  </div>
+  <p class="hint">开启后立即生效（约 2 秒内），已入库的上网行为日志不受影响；丢弃不影响 behavior_ctl 等其他类型日志。</p>
   <h3 style="margin-top:20px">服务操作</h3>
   <div class="filterbar">
     <button id="restartBtn" class="danger">重启服务</button>
