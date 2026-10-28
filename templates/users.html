@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}用户管理 - 网络日志分析{% endblock %}
+{% block body %}
+<h2>用户管理</h2>
+<div class="panel">
+  <p class="hint">系统管理员不可删除；「管理员」拥有全部功能，「审计管理员」仅可查看（不能清空日志、改备注、导入CSV、改系统设置、重启服务）。</p>
+  <div class="tbl-wrap">
+  <table class="tbl">
+    <thead><tr>
+      <th style="width:60px">ID</th><th>用户名</th><th style="width:160px">角色</th><th style="width:200px">创建时间</th><th style="width:180px">操作</th>
+    </tr></thead>
+    <tbody id="userBody"></tbody>
+  </table>
+  </div>
+</div>
+<div class="panel">
+  <div class="panel-title">新增用户</div>
+  <div class="filterbar">
+    <input id="nuName" placeholder="用户名">
+    <input id="nuPw" type="password" placeholder="密码（至少6位）">
+    <label>角色
+      <select id="nuRole">
+        <option value="admin">管理员</option>
+        <option value="audit">审计管理员</option>
+      </select>
+    </label>
+    <button id="nuAdd">新增</button>
+  </div>
+  <div id="userMsg" class="upload-msg" style="margin-top:8px"></div>
+</div>
+<script>
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const roleLbl = {system:'系统管理员', admin:'管理员', audit:'审计管理员'};
+function loadUsers() {
+  fetch('/api/users').then(r=>r.json()).then(d => {
+    document.getElementById('userBody').innerHTML = d.rows.map(u => `
+      <tr>
+        <td>${u.id}</td>
+        <td>${esc(u.username)}</td>
+        <td><span class="tag">${roleLbl[u.role]||u.role}</span></td>
+        <td>${esc(u.created_at)||''}</td>
+        <td>
+          <button data-id="${u.id}" class="editUser" ${u.role==='system'?'disabled title="系统管理员不可编辑用户名/角色，可修改密码"':''}>编辑</button>
+          <button data-id="${u.id}" class="delUser" ${u.role==='system'?'disabled':''}>删除</button>
+        </td>
+      </tr>`).join('');
+    bindUserActions(d.current);
+  });
+}
+function bindUserActions(current) {
+  document.querySelectorAll('.editUser').forEach(b => b.onclick = () => {
+    const id = parseInt(b.getAttribute('data-id'));
+    const u = document.querySelectorAll('#userBody tr')[[...b.closest('tr').parentNode.children].indexOf(b.closest('tr'))];
+    const uname = u.children[1].textContent;
+    const isSystem = u.children[2].textContent.includes('系统管理员');
+    const newName = isSystem ? null : prompt('修改用户名（留空保持不变）：', uname);
+    if (newName === null) return;
+    const newPw = prompt('修改密码（留空保持不变）：');
+    if (newPw === null) return;
+    let newRole = null;
+    if (!isSystem) {
+      const r = prompt('角色（admin=管理员 / audit=审计管理员，留空保持不变）：');
+      if (r === null) return;
+      if (r === 'admin' || r === 'audit') newRole = r;
+    }
+    fetch('/api/users/' + id, {method:'PUT', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({username: (newName===null?'':newName), password:newPw, role:newRole})})
+      .then(r=>r.json()).then(rr => { alert(rr.ok?'已保存':('失败: '+(rr.error||''))); loadUsers(); });
+  });
+  document.querySelectorAll('.delUser').forEach(b => b.onclick = async () => {
+    if (!confirm('确认删除该用户？')) return;
+    const r = await fetch('/api/users/' + b.getAttribute('data-id'), {method:'DELETE'}).then(r=>r.json());
+    alert(r.ok?'已删除':('失败: '+(r.error||'')));
+    loadUsers();
+  });
+}
+document.getElementById('nuAdd').onclick = async () => {
+  const name = document.getElementById('nuName').value.trim();
+  const pw = document.getElementById('nuPw').value;
+  const role = document.getElementById('nuRole').value;
+  const msg = document.getElementById('userMsg');
+  if (!name || !pw) { msg.textContent = '用户名和密码不能为空'; return; }
+  const r = await fetch('/api/users', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({username:name, password:pw, role})}).then(r=>r.json());
+  msg.textContent = r.ok ? ('✔ 已新增「'+name+'」') : ('失败: '+(r.error||''));
+  if (r.ok) { document.getElementById('nuName').value=''; document.getElementById('nuPw').value=''; }
+  loadUsers();
+};
+loadUsers();
+</script>
+{% endblock %}

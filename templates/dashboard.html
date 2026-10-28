@@ -10,10 +10,30 @@
 </div>
 
 <div class="metric-row">
-  <div class="mcard"><div class="m-lbl">CPU 占用</div><div class="m-val" id="mCpu">-</div><div class="m-bar"><div id="mCpuBar"></div></div></div>
-  <div class="mcard"><div class="m-lbl">内存占用</div><div class="m-val" id="mMem">-</div><div class="m-bar"><div id="mMemBar"></div></div></div>
-  <div class="mcard"><div class="m-lbl">磁盘占用</div><div class="m-val" id="mDisk">-</div><div class="m-bar"><div id="mDiskBar"></div></div></div>
-  <div class="mcard net"><div class="m-lbl">网络下行</div><div class="m-val" id="mDown">-</div><div class="m-sub" id="mUp">上行 -</div></div>
+  <div class="mcard">
+    <div class="m-lbl">CPU 占用</div>
+    <div class="m-val" id="mCpu">-</div>
+    <div class="m-sub gray" id="mCpuSub">-</div>
+    <div class="m-bar"><div id="mCpuBar"></div></div>
+  </div>
+  <div class="mcard">
+    <div class="m-lbl">内存占用</div>
+    <div class="m-val" id="mMem">-</div>
+    <div class="m-sub gray" id="mMemSub">-</div>
+    <div class="m-bar"><div id="mMemBar"></div></div>
+  </div>
+  <div class="mcard">
+    <div class="m-lbl">磁盘占用</div>
+    <div class="m-val" id="mDisk">-</div>
+    <div class="m-sub gray" id="mDiskSub">-</div>
+    <div class="m-bar"><div id="mDiskBar"></div></div>
+  </div>
+  <div class="mcard net">
+    <div class="m-lbl">网络下行</div>
+    <div class="m-val" id="mDown">-</div>
+    <div class="m-sub" id="mUp">上行 -</div>
+    <div class="m-sub gray" id="mNetSpeed">-</div>
+  </div>
 </div>
 
 <div class="range-bar">
@@ -41,8 +61,8 @@
     <div id="domBars" class="bars"></div>
   </div>
   <div class="panel">
-    <h3>网络协议 TOP10 <a class="full-link" href="/full/protocol_top" target="_blank">全部</a></h3>
-    <div id="protoBars" class="bars"></div>
+    <h3>热门应用 TOP10 <a class="full-link" href="/full/apps" target="_blank">全部</a></h3>
+    <div id="appBars" class="bars"></div>
   </div>
 </div>
 
@@ -52,13 +72,19 @@
     <div id="catChart"></div>
   </div>
   <div class="panel">
-    <h3>热门应用 TOP10 <a class="full-link" href="/full/apps" target="_blank">全部</a></h3>
-    <div id="appBars" class="bars"></div>
+    <h3>娱乐应用 TOP10 <a class="full-link" href="/full/entertainment_hosts" target="_blank">全部</a></h3>
+    <div id="entBars" class="bars"></div>
   </div>
 </div>
 
-<div class="panel">
-  <h3>终端 IP TOP20 <a class="full-link" href="/full/hosts" target="_blank">全部</a></h3>
-  <div id="hostBars" class="bars two-col"></div>
+<div class="grid2">
+  <div class="panel">
+    <h3>终端 IP TOP10 <a class="full-link" href="/full/hosts" target="_blank">全部</a></h3>
+    <div id="hostBars" class="bars"></div>
+  </div>
+  <div class="panel">
+    <h3>网络协议 TOP10 <a class="full-link" href="/full/protocol_top" target="_blank">全部</a></h3>
+    <div id="protoBars" class="bars"></div>
+  </div>
 </div>
 {% endblock %}

@@ -30,6 +30,7 @@ import parser
 import syslogd
 
 app = Flask(__name__)
+app.config['APP_VERSION'] = config.APP_VERSION
 
 # session 密钥
 if os.path.exists(config.SECRET_KEY_FILE):
@@ -47,6 +48,33 @@ def login_required(fn):
             return redirect(url_for('login'))
         return fn(*a, **kw)
     return wrapper
+
+
+def _current_role():
+    return session.get('role') or 'system'
+
+
+def role_required(*roles):
+    """按角色拦截接口。mutate：管理员/系统管理员可写；audit 审计管理员只读。"""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            if not session.get('user'):
+                return jsonify({'ok': False, 'error': '未登录'}), 401
+            if _current_role() not in roles:
+                return jsonify({'ok': False, 'error': '无权限执行此操作'}), 403
+            return fn(*a, **kw)
+        return wrapper
+    return deco
+
+
+# 可写操作要求"管理员/系统管理员"；用户管理仅系统管理员
+def mutate_required(fn):
+    return role_required('system', 'admin')(fn)
+
+
+def system_required(fn):
+    return role_required('system')(fn)
 
 
 # ---------- 统计结果内存缓存（TTL） ----------
@@ -83,9 +111,10 @@ def login():
     if request.method == 'POST':
         u = request.form.get('username', '')
         p = request.form.get('password', '')
-        admin = db.get_admin()
-        if admin and u == admin['username'] and db.verify_pw(p, admin['pw_hash']):
+        admin = db.get_admin_by_username(u)
+        if admin and db.verify_pw(p, admin['pw_hash']):
             session['user'] = u
+            session['role'] = admin['role'] or 'admin'
             return redirect(url_for('dashboard'))
         err = '账号或密码错误'
     return render_template('login.html', err=err)
@@ -133,6 +162,13 @@ def devices_page():
     return render_template('devices.html')
 
 
+@app.route('/users')
+@login_required
+@system_required
+def users_page():
+    return render_template('users.html')
+
+
 @app.route('/full/<chart_type>')
 @login_required
 def full_page(chart_type):
@@ -142,6 +178,7 @@ def full_page(chart_type):
         'app_categories': '应用类别 - 完整列表',
         'protocol_top': '网络协议 - 完整列表',
         'hosts': '终端 IP - 完整列表',
+        'entertainment_hosts': '娱乐应用 - 终端 IP 完整列表',
     }
     return render_template('full.html', chart_type=chart_type, title=titles.get(chart_type, '完整统计'))
 
@@ -169,6 +206,54 @@ def api_uptime():
     h, rem = divmod(rem, 3600)
     m, s = divmod(rem, 60)
     return jsonify({'uptime_sec': up, 'days': d, 'hours': h, 'minutes': m, 'seconds': s})
+
+
+# ---------- 用户管理（仅系统管理员） ----------
+@app.route('/api/users', methods=['GET'])
+@login_required
+@system_required
+def api_users_list():
+    return jsonify({'rows': db.list_admins(), 'current': session.get('user')})
+
+
+@app.route('/api/users', methods=['POST'])
+@login_required
+@system_required
+def api_users_add():
+    data = request.get_json(force=True)
+    ok, err = db.add_admin(data.get('username', ''), data.get('password', ''),
+                           data.get('role', 'admin'))
+    return jsonify({'ok': True}) if ok else (jsonify({'ok': False, 'error': err}), 400)
+
+
+@app.route('/api/users/<int:uid>', methods=['PUT'])
+@login_required
+@system_required
+def api_users_update(uid):
+    data = request.get_json(force=True)
+    ok, err = db.update_admin(uid,
+                              data.get('username') if data.get('username') is not None else None,
+                              data.get('password') or None,
+                              data.get('role') if data.get('role') is not None else None)
+    return jsonify({'ok': True}) if ok else (jsonify({'ok': False, 'error': err}), 400)
+
+
+@app.route('/api/users/<int:uid>', methods=['DELETE'])
+@login_required
+@system_required
+def api_users_delete(uid):
+    if uid == session.get('id'):
+        pass  # 系统管理员身份由 db 层保护
+    ok, err = db.delete_admin(uid)
+    return jsonify({'ok': True}) if ok else (jsonify({'ok': False, 'error': err}), 400)
+
+
+@app.route('/api/categories')
+@login_required
+@ttl_cache(10)
+def api_categories():
+    """应用类别统计表全量，供日志查询类别多选下拉（新类别自动出现）。"""
+    return jsonify({'rows': db.list_categories()})
 
 
 # ---------- 应用图标 ----------
@@ -382,12 +467,53 @@ def api_online_trend():
     return db.online_trend(int(request.args.get('hours', 24)))
 
 
+def _attach_host_notes(rows):
+    """为终端 IP 排行行附加备注名（hosts 表按 IP 反查）与在线标记，供总览图表展示。"""
+    if not rows:
+        return rows
+    nm = db.host_note_map_by_ip()
+    online = db.online_host_ips(hours=1)
+    for r in rows:
+        r['note'] = nm.get(r.get('k'), '')
+        r['online'] = 1 if r.get('k') in online else 0
+    return rows
+
+
 @app.route('/api/stats/hosts')
 @login_required
 @ttl_cache(10)
 def api_stat_hosts():
     s, e = _range()
-    return db.top_hosts(int(request.args.get('limit', 10)), s, e)
+    return _attach_host_notes(db.top_hosts(int(request.args.get('limit', 10)), s, e))
+
+
+@app.route('/api/stats/entertainment_hosts')
+@login_required
+@ttl_cache(10)
+def api_entertainment_hosts():
+    s, e = _range()
+    return _attach_host_notes(db.entertainment_hosts(int(request.args.get('limit', 10)), s, e))
+
+
+@app.route('/api/stats/entertainment_host_apps')
+@login_required
+@ttl_cache(10)
+def api_entertainment_host_apps():
+    """指定终端在娱乐应用类别下的具体应用及次数（供完整列表页点击 IP 展开明细）。"""
+    s, e = _range()
+    host = request.args.get('host_ip', '')
+    return jsonify({'rows': db.host_entertainment_apps(host, s, e)})
+
+
+@app.route('/api/stats/host_top')
+@login_required
+def api_host_top():
+    """指定终端使用最多的 10 个应用 + 10 个网站（供终端 IP 完整列表页点击 IP 展开）。"""
+    s, e = _range()
+    host = request.args.get('host_ip', '')
+    if not host:
+        return jsonify({'apps': [], 'domains': []})
+    return jsonify(db.host_top_apps_domains(host, s, e))
 
 
 @app.route('/api/stats/domains')
@@ -434,10 +560,13 @@ def api_stats_all(chart_type):
         'app_categories': lambda: db.app_categories_all(s, e),
         'protocol_top': lambda: db.protocol_top_all(s, e),
         'hosts': lambda: db.top_hosts(10000, s, e),
+        'entertainment_hosts': lambda: db.entertainment_hosts_all(s, e),
     }
     if chart_type not in handlers:
         return jsonify({'error': 'unknown chart'}), 404
     all_rows = handlers[chart_type]()
+    if chart_type in ('hosts', 'entertainment_hosts'):
+        all_rows = _attach_host_notes(all_rows)
     total = len(all_rows)
     paged = all_rows[(page-1)*size:page*size]
     return jsonify({'total': total, 'page': page, 'size': size, 'rows': paged})
@@ -446,12 +575,30 @@ def api_stats_all(chart_type):
 @app.route('/api/stats/apps_in_category')
 @login_required
 def api_apps_in_category():
-    """返回指定应用类别下的具体应用明细（供类别完整列表页点击展开）。"""
+    """返回指定应用类别下的具体应用明细（供类别完整列表页点击展开）。
+    每个应用附带该时间段内使用的终端设备数（devices）。"""
     s, e = _range()
     cat = request.args.get('category', '')
     if not cat:
         return jsonify({'rows': []})
-    return jsonify({'rows': db.apps_by_category(cat, s, e)})
+    rows = db.apps_by_category(cat, s, e)
+    dev = db.apps_by_category_devices(cat, s, e)
+    for r in rows:
+        r['devices'] = dev.get(r['k'], 0)
+    return jsonify({'rows': rows})
+
+
+@app.route('/api/stats/app_devices')
+@login_required
+def api_app_devices():
+    """返回指定应用在时间段内使用的终端设备分页列表（供悬浮弹框展示）。"""
+    s, e = _range()
+    app = request.args.get('app', '')
+    if not app:
+        return jsonify({'total': 0, 'page': 1, 'size': 20, 'rows': []})
+    page = int(request.args.get('page', 1))
+    size = int(request.args.get('size', 20))
+    return jsonify(db.app_devices(app, s, e, page, size))
 
 
 # ---------- 日志查询 API ----------
@@ -487,6 +634,7 @@ def api_hosts():
 
 @app.route('/api/hosts/note', methods=['POST'])
 @login_required
+@mutate_required
 def api_host_note():
     data = request.get_json(force=True)
     mac = data.get('mac'); note = data.get('note', '')
@@ -494,6 +642,54 @@ def api_host_note():
         return jsonify({'ok': False, 'error': '缺少 mac'}), 400
     db.set_host_note(mac, note)
     return jsonify({'ok': True})
+
+
+@app.route('/api/hosts/delete', methods=['POST'])
+@login_required
+@mutate_required
+def api_host_delete():
+    data = request.get_json(force=True)
+    mac = data.get('mac', '')
+    ok, err = db.delete_host(mac)
+    return jsonify({'ok': True}) if ok else (jsonify({'ok': False, 'error': err}), 400)
+
+
+@app.route('/api/hosts.csv')
+@login_required
+def api_hosts_export():
+    """导出终端列表为 CSV（mac 主键）。"""
+    rows = db.export_hosts()
+    buf = io.StringIO()
+    buf.write('\ufeff')
+    w = csv.writer(buf)
+    w.writerow(['mac', 'ip', 'hostname', 'note', 'first_seen', 'last_seen'])
+    for r in rows:
+        w.writerow([r['mac'], r['ip'], r['hostname'], r['note'],
+                    r['first_seen'], r['last_seen']])
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition':
+                             'attachment; filename=hosts_%s.csv' %
+                             datetime.now().strftime('%Y%m%d_%H%M%S')})
+
+
+@app.route('/api/hosts/import', methods=['POST'])
+@login_required
+@mutate_required
+def api_hosts_import():
+    """导入终端 CSV，以 mac 为主键自动覆盖（支持 ':' 分隔自动转 '-'）。"""
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': '未上传文件'}), 400
+    rows = []
+    reader = csv.DictReader(io.TextIOWrapper(f.stream, encoding='utf-8-sig'))
+    for r in reader:
+        rows.append({'mac': r.get('mac'), 'ip': r.get('ip'), 'hostname': r.get('hostname'),
+                     'note': r.get('note'), 'first_seen': r.get('first_seen'),
+                     'last_seen': r.get('last_seen')})
+    ok, imported, skipped, err = db.import_host_rows(rows)
+    if ok:
+        return jsonify({'ok': True, 'imported': imported, 'skipped': skipped})
+    return jsonify({'ok': False, 'error': err}), 400
 
 
 # ---------- 数据来源设备 ----------
@@ -505,6 +701,7 @@ def api_devices():
 
 @app.route('/api/devices/name', methods=['POST'])
 @login_required
+@mutate_required
 def api_device_name():
     data = request.get_json(force=True)
     ip = data.get('device_ip'); name = data.get('custom_name', '')
@@ -512,6 +709,22 @@ def api_device_name():
         return jsonify({'ok': False, 'error': '缺少 device_ip'}), 400
     db.set_device_name(ip, name)
     return jsonify({'ok': True})
+
+
+@app.route('/api/devices/toggle', methods=['POST'])
+@login_required
+@mutate_required
+def api_device_toggle():
+    """禁用/启用数据来源设备。被禁用设备的 syslog 将被丢弃。"""
+    data = request.get_json(force=True)
+    ip = data.get('device_ip')
+    enabled = bool(data.get('enabled'))
+    if not ip:
+        return jsonify({'ok': False, 'error': '缺少 device_ip'}), 400
+    ok, err = db.set_device_enabled(ip, enabled)
+    if ok:
+        syslogd.refresh_disabled_devices()
+    return jsonify({'ok': True}) if ok else (jsonify({'ok': False, 'error': err}), 400)
 
 
 # ---------- 系统设置 ----------
@@ -525,6 +738,7 @@ def api_get_settings():
 
 @app.route('/api/settings', methods=['POST'])
 @login_required
+@mutate_required
 def api_set_settings():
     data = request.get_json(force=True)
     if 'keep_days' in data:
@@ -539,6 +753,7 @@ def api_set_settings():
 
 @app.route('/api/restart', methods=['POST'])
 @login_required
+@mutate_required
 def api_restart():
     """重启服务：先返回响应，再由独立脚本杀掉当前进程并重启。"""
     import subprocess, sys, os
@@ -573,6 +788,7 @@ def api_export():
 
 @app.route('/api/clear', methods=['POST'])
 @login_required
+@mutate_required
 def api_clear():
     data = request.get_json(force=True)
     start = data.get('start'); end = data.get('end')
@@ -582,18 +798,48 @@ def api_clear():
     return jsonify({'ok': True, 'deleted': n})
 
 
+@app.route('/api/logs/export.csv')
+@login_required
+def api_logs_export():
+    """将当前日志查询结果导出为 CSV。"""
+    start = request.args.get('start') or None
+    end = request.args.get('end') or None
+    host_ip = request.args.get('host_ip') or None
+    event_type = request.args.get('event_type') or None
+    app_category = request.args.get('app_category') or None
+    app_name = request.args.get('app_name') or None
+    keyword = request.args.get('keyword') or None
+    rows = db.query_logs_all(start, end, host_ip, event_type,
+                             app_category, app_name, keyword)
+    buf = io.StringIO()
+    buf.write('\ufeff')
+    w = csv.writer(buf)
+    w.writerow(['时间', '设备', '模块', '等级', '终端IP', '事件类型',
+                '网站分组', '域名', '网址', '应用类别', '应用名', '原始日志'])
+    for r in rows:
+        w.writerow([r['ts'], r['device_name'], r['module'], r['level'],
+                    r['host_ip'], r['event_type'], r['web_group'], r['domain'],
+                    r['url'], r['app_category'], r['app_name'], r['raw']])
+    return Response(buf.getvalue(), mimetype='text/csv; charset=utf-8',
+                    headers={'Content-Disposition':
+                             'attachment; filename=logs_%s.csv' %
+                             datetime.now().strftime('%Y%m%d_%H%M%S')})
+
+
 # ---------- 改密 ----------
 @app.route('/api/change_password', methods=['POST'])
 @login_required
 def api_change_pw():
     data = request.get_json(force=True)
-    ok = db.change_password(data.get('old_password', ''), data.get('new_password', ''))
+    ok = db.change_password(session.get('user', ''),
+                            data.get('old_password', ''), data.get('new_password', ''))
     return jsonify({'ok': ok})
 
 
 # ---------- 导入历史 CSV（TP-Link 导出格式） ----------
 @app.route('/api/import_csv', methods=['POST'])
 @login_required
+@mutate_required
 def api_import_csv():
     f = request.files.get('file')
     if not f:

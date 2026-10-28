@@ -3,11 +3,11 @@
 {% block body %}
 <h2>数据来源设备</h2>
 <div class="panel">
-  <p class="hint">自动从日志中识别上报设备，可在此修改设备显示名称。</p>
+  <p class="hint">自动从日志中识别上报设备，可在此修改设备显示名称；被禁用的设备上报的 syslog 将被丢弃。</p>
   <div class="tbl-wrap">
   <table class="tbl">
     <thead><tr>
-      <th style="width:140px">设备IP</th><th>设备原始名称</th><th style="width:220px">自定义名称</th><th style="width:100px">日志条数</th><th style="width:160px">最后上报</th><th style="width:80px">操作</th>
+      <th style="width:140px">设备IP</th><th>设备原始名称</th><th style="width:220px">自定义名称</th><th style="width:90px">日志条数</th><th style="width:160px">最后上报</th><th style="width:80px">状态</th><th style="width:130px">操作</th>
     </tr></thead>
     <tbody id="devBody"></tbody>
   </table>

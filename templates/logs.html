@@ -16,10 +16,21 @@
       <option value="other">其他</option>
     </select>
   </label>
-  <label>应用类别 <input id="fCat" placeholder="如 网络购物"></label>
+  <label>应用类别
+    <span class="cat-select" id="catSel">
+      <button type="button" id="catBtn" class="cat-btn" title="点击选择应用类别（可多选，最多5种）">全部</button>
+      <div class="cat-menu" id="catMenu" style="display:none">
+        <div class="cat-head">选择应用类别（可多选，最多 5 种）</div>
+        <div class="cat-grid" id="catGrid">
+          <label class="cat-opt" data-cat=""><input type="checkbox" class="cat-cb" value=""><span>全部</span></label>
+        </div>
+      </div>
+    </span>
+  </label>
   <label>应用名 <input id="fApp" placeholder="如 淘宝"></label>
   <label>关键字 <input id="fKw" placeholder="网址/应用/IP/备注"></label>
   <button id="searchBtn">查询</button>
+  <button id="exportLogsBtn" title="将当前查询结果导出为 CSV">导出CSV</button>
   <label class="chk"><input type="checkbox" id="liveChk"> 自动刷新(5s)</label>
 </div>
 

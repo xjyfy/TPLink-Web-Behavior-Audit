@@ -21,6 +21,9 @@ DEFAULT_ADMIN_PASS = "admin123"
 # 日志自动清理天数（SQLite 单表建议不超过 30 天；管理员可在网页"导出与清理"页修改）
 KEEP_DAYS = 30
 
+# 版本号（展示于后台左上角）
+APP_VERSION = "v3.0"
+
 # Flask session 密钥（首次启动随机生成并持久化到 data/.secret_key）
 SECRET_KEY_FILE = os.path.join(DATA_DIR, ".secret_key")
 

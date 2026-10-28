@@ -17,10 +17,25 @@ import parser
 # 后台开关：不保存"上网行为"日志（web_usage 类型全部丢弃，不入库、不写分流文件）。
 # 由 _settings_watch 线程每 2 秒从 settings 表刷新。
 _drop_web_usage = False
+# 被禁用的数据来源设备 IP 集合：其上报的 syslog 将被丢弃。
+# 由 _disabled_watch 线程每 2 秒从 devices 表刷新，也可由 Web 端切换接口主动刷新。
+_disabled_devices = set()
+
+
+def refresh_disabled_devices():
+    """主动刷新禁用设备集合（设备列表切换启用状态后立即调用）。"""
+    global _disabled_devices
+    try:
+        _disabled_devices = db.get_disabled_devices()
+    except Exception as e:
+        print("[syslog] 刷新禁用设备失败:", e)
 
 
 def _handle_message(message, device_from_pkt, pkt_ts, raw_text, device_ip):
     module = parser.detect_module(message)
+    # 设备被禁用时丢弃其 syslog
+    if device_ip in _disabled_devices:
+        return
     # 开关开启时丢弃"上网行为"类型日志
     if _drop_web_usage and module == 'web_usage':
         return
@@ -163,6 +178,17 @@ def _settings_watch():
         time.sleep(2)
 
 
+def _disabled_watch():
+    """daemon 线程：轮询 devices 表，刷新被禁用的设备 IP 集合。"""
+    global _disabled_devices
+    while True:
+        try:
+            _disabled_devices = db.get_disabled_devices()
+        except Exception as e:
+            print("[syslog] 读取禁用设备失败:", e)
+        time.sleep(2)
+
+
 def run():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -181,6 +207,8 @@ def run():
 def start_async():
     threading.Thread(target=_settings_watch, daemon=True).start()
     threading.Thread(target=_capture_watch, daemon=True).start()
+    threading.Thread(target=_disabled_watch, daemon=True).start()
+    refresh_disabled_devices()
     t = threading.Thread(target=run, daemon=True)
     t.start()
     return t

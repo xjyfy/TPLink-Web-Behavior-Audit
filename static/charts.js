@@ -97,16 +97,26 @@ const Charts = {
     const n = items.length;
     el.innerHTML = items.map((it,i)=>{
       const pct = Math.max(2, ((it.n - clip) / range * 100)).toFixed(1);
-      const light = 35 + (i / Math.max(n-1,1)) * 45;
+      // 同色系从上到下由深到浅（蓝色系，第1条最深）
+      const light = 35 + (i / Math.max(n-1,1)) * 45; // 35% -> 80%
       const color = `hsl(215, 80%, ${light}%)`;
       const k = (it.k||'').replace(/"/g,'&quot;');
       const iconHtml = opts.showIcons
         ? `<img src="/app_icon/${encodeURIComponent(it.k||'')}" class="bar-icon" alt="" onerror="this.style.display='none'"> `
         : '';
+      // 备注名：opts.showNote 时在 IP 列内、IP 与次数之间左对齐展示（同列固定宽度，保持图表对齐）
+      const note = (it.note||'').replace(/"/g,'&quot;');
+      const noteHtml = opts.showNote
+        ? `<span class="note" title="${note}">${note}</span>`
+        : '';
+      // 在线着色：opts.showOnline 且后端给出 online 标记时，IP 用绿(在线)/灰(离线)
+      const ipHtml = opts.showNote
+        ? `<span class="ip ${opts.showOnline ? (it.online ? 'online' : 'offline') : ''}">${it.k||'(空)'}</span>`
+        : (it.k||'(空)');
       return `<div class="bar-row ${onClick?'clickable':''}" data-k="${k}">
         <span class="rank">${(opts.rankField && it[opts.rankField]) ? it[opts.rankField] : i+1}</span>
         <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
-        <span class="k" title="${it.k||'(空)'}">${iconHtml}${it.k||'(空)'}</span>
+        <span class="k ${opts.showNote?'has-note':''}" title="${it.k||'(空)'}">${iconHtml}${ipHtml}${noteHtml}</span>
         <span class="v">${it.n}</span>
       </div>`;
     }).join('');

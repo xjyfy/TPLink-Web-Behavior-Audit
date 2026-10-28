@@ -44,6 +44,10 @@ button.danger:hover { background:#b82c33; }
 .bars { display:flex; flex-direction:column; gap:6px; }
 .bar-row { display:flex; align-items:center; gap:8px; font-size:12px; }
 .bar-row .k { width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#444; }
+/* 带备注时：IP 列保持固定 160px，备注名在 IP 后同列左对齐、超长省略，不影响条与次数列对齐 */
+.bar-row .k.has-note { display:flex; align-items:center; text-overflow:clip; }
+.bar-row .k.has-note .ip { flex:0 0 auto; }
+.bar-row .k.has-note .note { flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#94a3b8; font-size:11px; padding-left:6px; }
 .bar-row .track { flex:1; background:#eef2f7; border-radius:3px; height:14px; position:relative; }
 .bar-row .fill { background:#1f6feb; height:100%; border-radius:3px; }
 .bar-row .v { width:50px; text-align:right; color:#888; }
@@ -68,21 +72,25 @@ button.danger:hover { background:#b82c33; }
 .tag-other { background:#f5f5f5; color:#888; }
 .hnote { color:#c41d7f; font-size:11px; }
 
+/* 宿主机指标卡片 */
 .metric-row { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:14px; }
 .mcard { background:#fff; border-radius:8px; padding:14px 16px; border-left:4px solid #1f6feb; }
 .mcard.net { border-left-color:#2ea44f; }
 .m-lbl { color:#888; font-size:12px; }
 .m-val { font-size:24px; font-weight:700; color:#1f2d3d; margin:2px 0; }
 .m-sub { color:#2ea44f; font-size:12px; }
+.m-sub.gray { color:#94a3b8; }
 .m-bar { height:5px; background:#eef2f7; border-radius:3px; margin-top:6px; overflow:hidden; }
 .m-bar > div { height:100%; background:#1f6feb; width:0%; transition:width .5s; }
 
+/* 时间范围按钮 */
 .range-bar { display:flex; align-items:center; gap:8px; margin-bottom:14px; }
 .range-lbl { color:#666; font-size:13px; }
 .range-btn { background:#fff; color:#444; border:1px solid #d9dee5; padding:5px 14px; border-radius:14px; cursor:pointer; font-size:13px; }
 .range-btn.active { background:#1f6feb; color:#fff; border-color:#1f6feb; }
 .range-btn:hover { border-color:#1f6feb; }
 
+/* 环形图图例：整个图表宽度均分左右两半，左侧环形图不越过中线，右侧名称+数字整齐排列 */
 .donut-wrap { display:grid; grid-template-columns:1fr 1fr; align-items:center; gap:10px; }
 .donut-wrap .donut-svg { display:flex; justify-content:center; align-items:center; min-width:0; }
 .donut-wrap .donut-svg svg { display:block; width:auto; max-width:100%; height:auto; }
@@ -94,10 +102,12 @@ button.danger:hover { background:#b82c33; }
 .cat-app-row { display:flex; align-items:center; gap:8px; max-width:560px; padding:2px 0; font-size:13px; color:#374151; }
 .cat-app-row .app-icon { width:18px; height:18px; vertical-align:middle; margin-right:6px; }
 .cat-app-name { display:inline-flex; align-items:center; flex:1 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cat-app-tag { flex:0 0 auto; font-size:11px; color:#1f6feb; background:#eef4ff; border-radius:8px; padding:1px 7px; margin-left:6px; white-space:nowrap; }
 .cat-app-count { flex:0 0 auto; color:#888; text-align:right; min-width:46px; }
 .dev-count { flex:0 0 auto; color:#1f6feb; cursor:pointer; text-decoration:underline; margin-left:6px; font-size:12px; }
 .dev-count:hover { color:#0b4dbe; }
 
+/* 应用设备悬浮弹框 */
 .modal-mask { position:fixed; inset:0; background:rgba(15,23,42,.45); display:flex; align-items:center; justify-content:center; z-index:1000; }
 .modal-box { background:#fff; border-radius:10px; box-shadow:0 8px 30px rgba(15,23,42,.25); width:min(540px,94vw); max-height:80vh; display:flex; flex-direction:column; overflow:hidden; }
 .modal-head { display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid #eef2f7; font-weight:600; font-size:14px; }
@@ -118,19 +128,23 @@ button.danger:hover { background:#b82c33; }
 .modal-foot button { padding:4px 12px; border:1px solid #d1d5db; background:#fff; border-radius:6px; cursor:pointer; font-size:13px; }
 .modal-foot button:disabled { opacity:.45; cursor:not-allowed; }
 
+/* 横向条：序号 + 可点击 */
 .bar-row { display:flex; align-items:center; gap:8px; font-size:12px; padding:3px 0; }
 .bar-row .rank { width:18px; color:#94a3b8; font-size:11px; }
 .bar-row .track { flex:1; background:#eef2f7; border-radius:3px; height:14px; }
 .bar-row .track .fill { height:100%; border-radius:3px; }
 .bar-row .k { width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#444; }
 .bar-row .v { width:50px; text-align:right; color:#888; }
+/* 条图内的小图标（与应用名同行，不撑高行高） */
 .bar-icon { width:12px; height:12px; vertical-align:middle; margin-right:4px; border-radius:2px; flex:none; }
 .bar-row.clickable { cursor:pointer; }
 .bar-row.clickable:hover .k { color:#1f6feb; }
 
+/* 在线状态点 */
 .dot-online { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2ea44f; margin-right:4px; }
 .dot-offline { display:inline-block; width:8px; height:8px; border-radius:50%; background:#cbd5e1; margin-right:4px; }
 
+/* 终端统计卡片 */
 .stat-row { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
 .stat-chip { display:inline-flex; align-items:baseline; gap:8px; background:#f0f6ff;
              border:1px solid #d6e4ff; border-radius:8px; padding:8px 16px; }
@@ -138,63 +152,121 @@ button.danger:hover { background:#b82c33; }
 .stat-chip b { font-size:22px; font-weight:700; color:#1f6feb; font-variant-numeric:tabular-nums; }
 .stat-chip:last-child b { color:#2ea44f; }
 
+/* 完整列表链接 */
 .full-link { margin-left:8px; font-size:12px; color:#1f6feb; text-decoration:none; font-weight:normal; }
 .full-link:hover { text-decoration:underline; }
 
+/* 两列布局的横向条 */
 .bars.two-col { display:grid; grid-template-columns:1fr 1fr; gap:0 24px; }
 .bars.two-col .bar-row .k { width:140px; }
 
+/* 分页控件 */
 .pager { display:flex; align-items:center; gap:8px; font-size:13px; }
 .pager button { padding:3px 10px; cursor:pointer; }
 .pager button:disabled { opacity:.4; cursor:default; }
 
+/* 系统时间卡片 */
 .sys-clock { background:#fff; border-radius:8px; padding:14px 18px; margin-bottom:14px;
              display:flex; align-items:center; gap:24px; border-left:4px solid #2ea44f; }
 .sys-date { font-size:14px; color:#444; }
 .sys-time { font-size:28px; font-weight:700; color:#1f6feb; font-variant-numeric:tabular-nums; letter-spacing:1px; }
 .sys-uptime { font-size:13px; color:#888; margin-left:auto; }
 .app-icon { width:18px; height:18px; vertical-align:middle; margin-right:6px; border-radius:3px; }
+/* 热门应用列表：图标可点击上传 */
 .app-icon.clickable-icon { width:20px; height:20px; cursor:pointer; border:1px dashed #cbd5e1;
                            background:#f8fafc; box-sizing:border-box; }
 .app-icon.clickable-icon:hover { border-color:#1f6feb; background:#eef6ff; }
 .upload-msg { margin-left:12px; font-size:13px; color:#1f6feb; }
 
+/* 画布随容器缩放（趋势折线） */
 canvas { max-width:100%; height:auto; }
 
+/* ============ 移动端 H5 适配 ============ */
 @media (max-width: 767px) {
   .container { max-width:100%; padding:0 12px; margin:12px auto; }
   h2 { margin-bottom:12px; font-size:18px; }
   .panel { padding:12px; }
+
+  /* 顶部导航：横向可滚动，隐藏占位与用户信息 */
   .topnav { overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; gap:4px; padding:0 8px; }
   .topnav .spacer, .topnav .userinfo { display:none; }
   .topnav .brand { margin-right:10px; flex:none; }
   .topnav a { padding:0 9px; flex:none; font-size:13px; }
+
+  /* 指标卡：2 列 */
   .metric-row { grid-template-columns:1fr 1fr; gap:8px; }
   .mcard { padding:10px 12px; }
   .m-val { font-size:20px; }
+
+  /* 两列面板 → 单列堆叠 */
   .grid2 { grid-template-columns:1fr; gap:10px; }
+
+  /* 系统时钟竖排换行 */
   .sys-clock { flex-wrap:wrap; gap:6px; padding:12px; }
   .sys-uptime { margin-left:0; width:100%; }
+
+  /* 时间范围按钮换行 */
   .range-bar { flex-wrap:wrap; gap:6px; }
+
+  /* 表单筛选：纵向堆叠、全宽，便于触控 */
   .filterbar { flex-direction:column; align-items:stretch; gap:10px; }
   .filterbar label { width:100%; }
   .filterbar label.chk { flex-direction:row; align-items:center; gap:6px; }
   .filterbar input, .filterbar select { width:100%; }
   .filterbar button { width:100%; }
+
+  /* 统计/分页行：换行 */
   .row-between { flex-direction:column; align-items:stretch; gap:8px; }
   .pager { flex-wrap:wrap; gap:6px; }
   .pager button { padding:4px 12px; }
   .pager input { width:56px !important; }
+
+  /* 表格：横向滚动，列不挤压 */
   .tbl-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
   .tbl-wrap .tbl th, .tbl-wrap .tbl td { white-space:nowrap; }
+
+  /* 横向条：两列 → 单列 */
   .bars.two-col { grid-template-columns:1fr; }
+
+  /* 环形图：窄屏改单列，环形图在上、图例在下 */
   .donut-wrap { grid-template-columns:1fr; gap:10px; }
   .donut-wrap .donut-svg svg { margin:0 auto; }
+
+  /* 登录卡片全宽 */
   .login-body { padding:0 16px; }
   .login-card { width:100%; }
+
+  /* 完整列表名称列缩短，给图标留位 */
   .bar-row .k { width:140px; }
 }
 @media (max-width: 420px) {
   .bar-row .k { width:120px; }
   .cards { grid-template-columns:1fr 1fr; gap:8px; }
 }
+
+/* ============ v3.0 ============ */
+/* 终端IP/娱乐应用图在线着色：在线绿、离线灰（保持 IP 列内同列） */
+.bar-row .k.has-note .ip.online, .ip.online { color:#2ea44f; font-weight:600; }
+.bar-row .k.has-note .ip.offline, .ip.offline { color:#94a3b8; }
+
+/* 终端完整列表 td 内的 IP 与备注 */
+.cat-toggle .ip { color:#444; }
+.cat-toggle .ip.online { color:#2ea44f; font-weight:600; }
+.cat-toggle .ip.offline { color:#94a3b8; }
+.cat-toggle .note { color:#94a3b8; font-size:11px; margin-left:6px; }
+
+/* 应用类别多选下拉（日志查询） */
+.cat-select { position:relative; display:inline-block; vertical-align:middle; }
+.cat-btn { min-width:150px; background:#fff; color:#444; border:1px solid #d9dee5; border-radius:4px; padding:5px 10px; cursor:pointer; font-size:13px; text-align:left; }
+.cat-menu { position:absolute; top:100%; left:0; z-index:100; background:#fff; border:1px solid #d9dee5; border-radius:6px; box-shadow:0 6px 20px rgba(15,23,42,.15); width:min(440px,92vw); margin-top:4px; }
+.cat-head { padding:8px 12px; font-size:12px; color:#888; border-bottom:1px solid #eef2f7; }
+/* 类别多时横向双列 + 滚动条 */
+.cat-grid { display:grid; grid-template-columns:1fr 1fr; gap:2px 12px; max-height:280px; overflow-y:auto; padding:8px 12px; }
+.cat-opt { display:flex; align-items:center; gap:6px; padding:4px 2px; font-size:13px; color:#374151; cursor:pointer; }
+.cat-opt:hover { background:#f6f8fb; }
+.cat-opt input { cursor:pointer; }
+.cat-opt input:disabled + span { color:#cbd5e1; cursor:not-allowed; }
+
+/* 终端 Top10 应用/网站 展开分组标题 */
+.cat-group-title { font-size:12px; color:#1f6feb; font-weight:600; margin-bottom:2px; }
+

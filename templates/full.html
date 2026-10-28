@@ -42,6 +42,7 @@
 const CHART = {{ chart_type|tojson }};
 let pageNum = 1;
 const SIZE = 20;
+// 继承总览页打开时的时间范围（若无则按全量统计）
 const SP = new URLSearchParams(location.search);
 const RANGE = (SP.get('start') && SP.get('end'))
   ? `&start=${encodeURIComponent(SP.get('start'))}&end=${encodeURIComponent(SP.get('end'))}`
@@ -66,9 +67,18 @@ function load() {
           : (CHART === 'app_categories'
               ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon" onerror="this.style.display='none'"> `
               : '');
+        // 终端类列表：IP 在线绿色 / 离线灰色，并展示备注名
+        const ipHtml = (r.online !== undefined)
+          ? `<span class="ip ${r.online?'online':'offline'}">${name}</span>`
+          : name;
+        const noteHtml = (r.note) ? `<span class="note" title="${r.note}">${r.note}</span>` : '';
         const nameCell = (CHART === 'app_categories')
           ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该类别的具体应用">▸ ${icon}${name}</td>`
-          : `<td>${icon}${name}</td>`;
+          : (CHART === 'entertainment_hosts')
+              ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该终端的娱乐应用明细">▸ ${icon}${ipHtml}${noteHtml}</td>`
+              : (CHART === 'hosts')
+                  ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该终端的 Top10 应用与网站">▸ ${ipHtml}${noteHtml}</td>`
+                  : `<td>${icon}${ipHtml}${noteHtml}</td>`;
         return `
         <tr>
           <td>${(d.page-1)*SIZE + i + 1}</td>
@@ -77,8 +87,11 @@ function load() {
         </tr>`;
       }).join('');
       if (CHART === 'app_categories') bindCatToggles();
+      if (CHART === 'entertainment_hosts') bindHostAppToggles();
+      if (CHART === 'hosts') bindHostsToggles();
     });
 }
+// 应用类别：点击行展开该类别的具体应用
 function bindCatToggles() {
   const body = document.getElementById('fullBody');
   body.querySelectorAll('.cat-toggle').forEach(td => {
@@ -105,8 +118,70 @@ function bindCatToggles() {
     };
   });
 }
+// 娱乐应用终端列表：点击 IP 展开该终端的娱乐应用明细（应用 + 类别 + 次数）
+function bindHostAppToggles() {
+  const body = document.getElementById('fullBody');
+  body.querySelectorAll('.cat-toggle').forEach(td => {
+    td.onclick = async () => {
+      const ip = td.getAttribute('data-cat');
+      const tr = td.closest('tr');
+      const isOpen = tr.classList.toggle('open');
+      td.innerHTML = (isOpen ? '▾ ' : '▸ ') + td.innerHTML.slice(2);
+      const old = tr.nextElementSibling;
+      if (old && old.classList.contains('cat-detail')) old.remove();
+      if (!isOpen) return;
+      try {
+        const d = await fetch('/api/stats/entertainment_host_apps?host_ip=' + encodeURIComponent(ip) + RANGE).then(r=>r.json());
+        const apps = d.rows || [];
+        const child = document.createElement('tr');
+        child.className = 'cat-detail';
+        child.innerHTML = `<td></td><td colspan="2" style="padding:6px 0 6px 30px;">${
+          apps.length ? apps.map(a =>
+            `<div class="cat-app-row"><span class="cat-app-name"><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${a.k}</span><span class="cat-app-tag">${a.cat}</span><span class="cat-app-count">${a.n} 次</span></div>`
+          ).join('') : '<span style="color:#999">(该终端在娱乐应用类别下暂无具体应用数据)</span>'
+        }</td>`;
+        tr.after(child);
+      } catch (err) {}
+    };
+  });
+}
+// 终端 IP 完整列表：点击 IP 展开该终端使用最多的 10 个应用 + 10 个网站
+function bindHostsToggles() {
+  const body = document.getElementById('fullBody');
+  body.querySelectorAll('.cat-toggle').forEach(td => {
+    td.onclick = async () => {
+      const ip = td.getAttribute('data-cat');
+      const tr = td.closest('tr');
+      const isOpen = tr.classList.toggle('open');
+      td.innerHTML = (isOpen ? '▾ ' : '▸ ') + td.innerHTML.slice(2);
+      const old = tr.nextElementSibling;
+      if (old && old.classList.contains('cat-detail')) old.remove();
+      if (!isOpen) return;
+      try {
+        const d = await fetch('/api/stats/host_top?host_ip=' + encodeURIComponent(ip) + RANGE).then(r=>r.json());
+        const apps = d.apps || [];
+        const domains = d.domains || [];
+        const child = document.createElement('tr');
+        child.className = 'cat-detail';
+        const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        const appHtml = apps.length
+          ? apps.map(a => `<div class="cat-app-row"><span class="cat-app-name"><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${esc(a.k)}</span><span class="cat-app-count">${a.n}</span></div>`).join('')
+          : '<span style="color:#999">(暂无应用数据)</span>';
+        const webHtml = domains.length
+          ? domains.map(a => `<div class="cat-app-row"><span class="cat-app-name">${esc(a.k)}</span><span class="cat-app-count">${a.n}</span></div>`).join('')
+          : '<span style="color:#999">(暂无网站数据)</span>';
+        child.innerHTML = `<td></td><td colspan="2" style="padding:6px 0 6px 30px;">
+          <div class="cat-group-title">Top10 应用</div>${appHtml}
+          <div class="cat-group-title" style="margin-top:8px">Top10 网站</div>${webHtml}
+        </td>`;
+        tr.after(child);
+      } catch (err) {}
+    };
+  });
+}
 document.getElementById('prevBtn').onclick = () => { if(pageNum>1){pageNum--;load();} };
 document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
+// 应用图标点击上传（仅"热门应用"列表）
 (function(){
   const fileInput = document.getElementById('appIconFile');
   if (!fileInput || CHART !== 'apps') return;
@@ -144,6 +219,7 @@ document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
     }
   });
 })();
+// 应用设备悬浮弹框（点击"X 台设备"打开，超20个翻页，可点遮罩/×关闭）
 (function(){
   const mask = document.getElementById('devModal');
   const close = document.getElementById('devModalClose');
@@ -189,6 +265,7 @@ document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
   });
   close.onclick = () => { mask.style.display = 'none'; };
   mask.addEventListener('click', e => {
+    // 点遮罩空白 或 × 按钮 均可关闭
     if (e.target === mask || e.target.closest('.modal-close')) mask.style.display = 'none';
   });
   devPrev.onclick = () => { if (devPage > 1){ devPage--; loadDevices(); } };
