@@ -100,6 +100,8 @@ button.danger:hover { background:#b82c33; }
 .bar-row .track .fill { height:100%; border-radius:3px; }
 .bar-row .k { width:170px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#444; }
 .bar-row .v { width:50px; text-align:right; color:#888; }
+/* 条图内的小图标（与应用名同行，不撑高行高） */
+.bar-icon { width:12px; height:12px; vertical-align:middle; margin-right:4px; border-radius:2px; flex:none; }
 .bar-row.clickable { cursor:pointer; }
 .bar-row.clickable:hover .k { color:#1f6feb; }
 
@@ -127,3 +129,75 @@ button.danger:hover { background:#b82c33; }
 .sys-time { font-size:28px; font-weight:700; color:#1f6feb; font-variant-numeric:tabular-nums; letter-spacing:1px; }
 .sys-uptime { font-size:13px; color:#888; margin-left:auto; }
 .app-icon { width:18px; height:18px; vertical-align:middle; margin-right:6px; border-radius:3px; }
+/* 热门应用列表：图标可点击上传 */
+.app-icon.clickable-icon { width:20px; height:20px; cursor:pointer; border:1px dashed #cbd5e1;
+                           background:#f8fafc; box-sizing:border-box; }
+.app-icon.clickable-icon:hover { border-color:#1f6feb; background:#eef6ff; }
+.upload-msg { margin-left:12px; font-size:13px; color:#1f6feb; }
+
+/* 画布随容器缩放（趋势折线） */
+canvas { max-width:100%; height:auto; }
+
+/* ============ 移动端 H5 适配 ============ */
+@media (max-width: 767px) {
+  .container { max-width:100%; padding:0 12px; margin:12px auto; }
+  h2 { margin-bottom:12px; font-size:18px; }
+  .panel { padding:12px; }
+
+  /* 顶部导航：横向可滚动，隐藏占位与用户信息 */
+  .topnav { overflow-x:auto; -webkit-overflow-scrolling:touch; flex-wrap:nowrap; gap:4px; padding:0 8px; }
+  .topnav .spacer, .topnav .userinfo { display:none; }
+  .topnav .brand { margin-right:10px; flex:none; }
+  .topnav a { padding:0 9px; flex:none; font-size:13px; }
+
+  /* 指标卡：2 列 */
+  .metric-row { grid-template-columns:1fr 1fr; gap:8px; }
+  .mcard { padding:10px 12px; }
+  .m-val { font-size:20px; }
+
+  /* 两列面板 → 单列堆叠 */
+  .grid2 { grid-template-columns:1fr; gap:10px; }
+
+  /* 系统时钟竖排换行 */
+  .sys-clock { flex-wrap:wrap; gap:6px; padding:12px; }
+  .sys-uptime { margin-left:0; width:100%; }
+
+  /* 时间范围按钮换行 */
+  .range-bar { flex-wrap:wrap; gap:6px; }
+
+  /* 表单筛选：纵向堆叠、全宽，便于触控 */
+  .filterbar { flex-direction:column; align-items:stretch; gap:10px; }
+  .filterbar label { width:100%; }
+  .filterbar label.chk { flex-direction:row; align-items:center; gap:6px; }
+  .filterbar input, .filterbar select { width:100%; }
+  .filterbar button { width:100%; }
+
+  /* 统计/分页行：换行 */
+  .row-between { flex-direction:column; align-items:stretch; gap:8px; }
+  .pager { flex-wrap:wrap; gap:6px; }
+  .pager button { padding:4px 12px; }
+  .pager input { width:56px !important; }
+
+  /* 表格：横向滚动，列不挤压 */
+  .tbl-wrap { overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .tbl-wrap .tbl th, .tbl-wrap .tbl td { white-space:nowrap; }
+
+  /* 横向条：两列 → 单列 */
+  .bars.two-col { grid-template-columns:1fr; }
+
+  /* 环形图：图例竖排 */
+  .donut-wrap { flex-direction:column; align-items:flex-start; gap:10px; }
+  .donut-wrap svg { margin:0 auto; }
+
+  /* 登录卡片全宽 */
+  .login-body { padding:0 16px; }
+  .login-card { width:100%; }
+
+  /* 完整列表名称列缩短，给图标留位 */
+  .bar-row .k { width:140px; }
+}
+@media (max-width: 420px) {
+  .bar-row .k { width:120px; }
+  .cards { grid-template-columns:1fr 1fr; gap:8px; }
+}
+
