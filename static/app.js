@@ -78,6 +78,14 @@ if (document.getElementById('mCpu')) {
     q.set('end', fmt(end));
     return q.toString();
   }
+  function updateFullLinks() {
+    // 让"全部"链接继承当前时间范围，而不是全表统计
+    const q = rangeQs();
+    document.querySelectorAll('.full-link').forEach(a => {
+      const base = a.getAttribute('href').split('?')[0];
+      a.setAttribute('href', base + '?' + q);
+    });
+  }
   function loadRangeCharts() {
     api('/api/stats/domains?limit=10&' + rangeQs()).then(d => Charts.bars('domBars', d, k => goLogs({keyword:k})));
     api('/api/stats/apps?limit=10&' + rangeQs()).then(d => Charts.bars('appBars', d, k => goLogs({app_name:k}), {showIcons:true}));
@@ -86,10 +94,12 @@ if (document.getElementById('mCpu')) {
     api('/api/stats/hosts?limit=20&' + rangeQs()).then(d => Charts.bars('hostBars', d, k => goLogs({host_ip:k})));
   }
   loadRangeCharts();
+  updateFullLinks();
   document.querySelectorAll('.range-btn').forEach(b => b.onclick = () => {
     document.querySelectorAll('.range-btn').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
     loadRangeCharts();
+    updateFullLinks();
   });
 }
 
@@ -211,13 +221,24 @@ if (document.getElementById('exportBtn')) {
     const r = await fetch('/api/import_csv', {method:'POST', body:fd}).then(r=>r.json());
     document.getElementById('importResult').textContent = r.ok ? `成功导入 ${r.imported} 条` : ('失败: '+(r.error||''));
   };
-  // 系统设置：保留天数
-  api('/api/settings').then(s => { document.getElementById('setDays').value = s.keep_days; });
+  // 系统设置：保留天数 + 不保存上网行为日志开关
+  api('/api/settings').then(s => {
+    document.getElementById('setDays').value = s.keep_days;
+    document.getElementById('dropWebUsage').checked = !!s.drop_web_usage;
+  });
   document.getElementById('saveDaysBtn').onclick = async () => {
     const days = parseInt(document.getElementById('setDays').value);
     const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({keep_days:days})}).then(r=>r.json());
-    document.getElementById('daysResult').textContent = r.ok ? `已保存：保留 ${r.keep_days} 天` : ('失败: '+(r.error||''));
+    document.getElementById('daysResult').textContent = r.ok ? `已保存：保留 ${days} 天` : ('失败: '+(r.error||''));
+  };
+  document.getElementById('saveDropBtn').onclick = async () => {
+    const on = document.getElementById('dropWebUsage').checked;
+    const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({drop_web_usage: on})}).then(r=>r.json());
+    document.getElementById('dropResult').textContent = r.ok
+      ? (on ? '已开启：上网行为日志将被丢弃（约 2 秒内生效）' : '已关闭：上网行为日志将正常入库（约 2 秒内生效）')
+      : ('失败: '+(r.error||''));
   };
   document.getElementById('restartBtn').onclick = async () => {
     if (!confirm('确认重启服务？重启期间约 3 秒无法访问。')) return;
@@ -238,10 +259,21 @@ document.getElementById('chgPwBtn')?.addEventListener('click', async () => {
 
 // ---------- 终端管理 ----------
 if (document.getElementById('hostBody')) {
+  let hostPage = 1;
+  const HOST_SIZE = 20;
   function loadHosts() {
     const kw = document.getElementById('hKw').value.trim();
-    api('/api/hosts' + (kw ? '?keyword=' + encodeURIComponent(kw) : '')).then(list => {
-      document.getElementById('hostBody').innerHTML = list.map(h => {
+    const q = new URLSearchParams({page: hostPage, size: HOST_SIZE});
+    if (kw) q.set('keyword', kw);
+    api('/api/hosts?' + q.toString()).then(d => {
+      document.getElementById('onlineCnt').textContent = d.online_total;
+      document.getElementById('allCnt').textContent = d.all_total;
+      document.getElementById('hTotal').textContent = `共 ${d.total} 台设备`;
+      const totalPages = Math.max(1, Math.ceil(d.total / HOST_SIZE));
+      document.getElementById('hPageInfo').textContent = `第 ${d.page} / ${totalPages} 页`;
+      document.getElementById('hPrev').disabled = d.page <= 1;
+      document.getElementById('hNext').disabled = d.page >= totalPages;
+      document.getElementById('hostBody').innerHTML = d.rows.map(h => {
         const ip = h.ip||'';
         const p = n => String(n).padStart(2,'0');
         const o = new Date(Date.now()-3600*1000);
@@ -270,7 +302,9 @@ if (document.getElementById('hostBody')) {
       });
     });
   }
-  document.getElementById('hSearch').onclick = loadHosts;
+  document.getElementById('hSearch').onclick = () => { hostPage = 1; loadHosts(); };
+  document.getElementById('hPrev').onclick = () => { if(hostPage>1){hostPage--;loadHosts();} };
+  document.getElementById('hNext').onclick = () => { hostPage++; loadHosts(); };
   loadHosts();
 }
 
