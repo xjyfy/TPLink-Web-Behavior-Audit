@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登录 - 网络日志分析</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+</head>
+<body class="login-body">
+<form class="login-card" method="post">
+  <h1>网络日志分析</h1>
+  <p class="sub">Syslog 采集与分析服务器</p>
+  {% if err %}<div class="err">{{ err }}</div>{% endif %}
+  <label>账号
+    <input name="username" autofocus required>
+  </label>
+  <label>密码
+    <input name="password" type="password" required>
+  </label>
+  <button type="submit">登 录</button>
+  <p class="hint">默认 admin / admin123</p>
+</form>
+</body>
+</html>
