@@ -297,6 +297,45 @@ def app_icon(app_name):
     return Response(transparent, mimetype='image/png')
 
 
+@app.route('/api/app_icon/<path:app_name>', methods=['POST'])
+@login_required
+def api_app_icon_upload(app_name):
+    """上传/更换某应用的自定义图标。文件保存到 static/icons/<safe>.png，
+    即 /app_icon/ 使用的同一缓存目录；保存后自动缓存，后续展示自动使用。"""
+    import os
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'ok': False, 'error': '未收到文件'}), 400
+    data = f.read()
+    if not data:
+        return jsonify({'ok': False, 'error': '文件为空'}), 400
+    if len(data) > 2 * 1024 * 1024:
+        return jsonify({'ok': False, 'error': '图片过大（限 2MB）'}), 400
+    # 按文件头校验图片类型：PNG/JPG/GIF/ICO/WEBP
+    sig = data[:8]
+    valid = (sig.startswith(b'\x89PNG\r\n\x1a\n') or
+             sig.startswith(b'\xff\xd8') or
+             sig.startswith(b'GIF8') or
+             sig.startswith(b'\x00\x00\x01\x00') or
+             (sig[:4] == b'RIFF' and data[8:12] == b'WEBP'))
+    if not valid:
+        return jsonify({'ok': False,
+                        'error': '不是有效的图片文件（支持 PNG/JPG/GIF/ICO/WEBP）'}), 400
+    icon_dir = os.path.join(config.BASE_DIR, 'static', 'icons')
+    os.makedirs(icon_dir, exist_ok=True)
+    safe = app_name.replace('/', '_').replace('\\', '_').replace(':', '_')
+    local = os.path.join(icon_dir, safe + '.png')
+    with open(local, 'wb') as fh:
+        fh.write(data)
+    # 记录缓存（供后续展示与匹配使用；失败不影响上传）
+    try:
+        db.init_icons()
+        db.set_icon_path(app_name, safe + '.png')
+    except Exception:
+        pass
+    return jsonify({'ok': True, 'name': app_name})
+
+
 def _range():
     return request.args.get('start') or None, request.args.get('end') or None
 
