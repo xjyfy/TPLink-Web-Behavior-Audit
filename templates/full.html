@@ -23,11 +23,25 @@
   </div>
 </div>
 <input type="file" id="appIconFile" accept="image/*" style="display:none">
+<div id="devModal" class="modal-mask" style="display:none">
+  <div class="modal-box">
+    <div class="modal-head">
+      <span id="devModalTitle">使用终端</span>
+      <button id="devModalClose" class="modal-close">×</button>
+    </div>
+    <div id="devModalSub" class="modal-sub"></div>
+    <div class="modal-body" id="devBody"></div>
+    <div class="modal-foot">
+      <button id="devPrev">上一页</button>
+      <span id="devPageInfo"></span>
+      <button id="devNext">下一页</button>
+    </div>
+  </div>
+</div>
 <script>
 const CHART = {{ chart_type|tojson }};
 let pageNum = 1;
 const SIZE = 20;
-// 继承总览页打开时的时间范围（若无则按全量统计）
 const SP = new URLSearchParams(location.search);
 const RANGE = (SP.get('start') && SP.get('end'))
   ? `&start=${encodeURIComponent(SP.get('start'))}&end=${encodeURIComponent(SP.get('end'))}`
@@ -65,7 +79,6 @@ function load() {
       if (CHART === 'app_categories') bindCatToggles();
     });
 }
-// 应用类别：点击行展开该类别的具体应用
 function bindCatToggles() {
   const body = document.getElementById('fullBody');
   body.querySelectorAll('.cat-toggle').forEach(td => {
@@ -84,7 +97,7 @@ function bindCatToggles() {
         child.className = 'cat-detail';
         child.innerHTML = `<td></td><td colspan="2" style="padding:6px 0 6px 30px;">${
           apps.length ? apps.map(a =>
-            `<div class="cat-app-row"><span><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${a.k}</span><span>${a.n}</span></div>`
+            `<div class="cat-app-row"><span class="cat-app-name"><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${a.k}</span><span class="cat-app-count">${a.n}</span><a class="dev-count" data-app="${encodeURIComponent(a.k)}" title="点击查看使用该应用的终端设备">${a.devices||0} 台设备</a></div>`
           ).join('') : '<span style="color:#999">(该类别暂无具体应用数据)</span>'
         }</td>`;
         tr.after(child);
@@ -94,7 +107,6 @@ function bindCatToggles() {
 }
 document.getElementById('prevBtn').onclick = () => { if(pageNum>1){pageNum--;load();} };
 document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
-// 应用图标点击上传（仅"热门应用"列表）
 (function(){
   const fileInput = document.getElementById('appIconFile');
   if (!fileInput || CHART !== 'apps') return;
@@ -131,6 +143,56 @@ document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
       show('上传失败，请重试');
     }
   });
+})();
+(function(){
+  const mask = document.getElementById('devModal');
+  const close = document.getElementById('devModalClose');
+  const title = document.getElementById('devModalTitle');
+  const sub = document.getElementById('devModalSub');
+  const body = document.getElementById('devBody');
+  const devPrev = document.getElementById('devPrev');
+  const devNext = document.getElementById('devNext');
+  const devPageInfo = document.getElementById('devPageInfo');
+  const PAGE_SIZE = 20;
+  let devApp = null, devPage = 1, devTotal = 0;
+
+  const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  async function loadDevices() {
+    if (!devApp) return;
+    const url = '/api/stats/app_devices?app=' + encodeURIComponent(devApp) + '&page=' + devPage + '&size=' + PAGE_SIZE + RANGE;
+    const d = await fetch(url).then(r=>r.json());
+    devTotal = d.total;
+    const pages = Math.max(1, Math.ceil(d.total / PAGE_SIZE));
+    title.textContent = '「' + devApp + '」使用终端';
+    sub.textContent = '共 ' + d.total + ' 台设备' + (RANGE ? `（${SP.get('start')} ~ ${SP.get('end')}）` : '（全量）');
+    devPageInfo.textContent = '第 ' + d.page + ' / ' + pages + ' 页';
+    devPrev.disabled = d.page <= 1;
+    devNext.disabled = d.page >= pages;
+    const head = '<div class="dev-head"><span>MAC</span><span>IP</span><span>备注</span><span>次数</span></div>';
+    body.innerHTML = d.rows.length
+      ? head + d.rows.map(r =>
+          `<div class="dev-row">
+             <span class="dev-mac">${esc(r.mac)||'-'}</span>
+             <span class="dev-ip">${esc(r.ip)}</span>
+             <span class="dev-note">${esc(r.note)||'（无备注）'}</span>
+             <span class="dev-n">${r.n} 次</span>
+           </div>`).join('')
+      : '<div class="dev-empty">该时间段内无使用记录</div>';
+  }
+  document.getElementById('fullBody').addEventListener('click', e => {
+    const a = e.target.closest('a.dev-count');
+    if (!a) return;
+    devApp = decodeURIComponent(a.getAttribute('data-app'));
+    devPage = 1;
+    mask.style.display = 'flex';
+    loadDevices();
+  });
+  close.onclick = () => { mask.style.display = 'none'; };
+  mask.addEventListener('click', e => {
+    if (e.target === mask || e.target.closest('.modal-close')) mask.style.display = 'none';
+  });
+  devPrev.onclick = () => { if (devPage > 1){ devPage--; loadDevices(); } };
+  devNext.onclick = () => { devPage++; loadDevices(); };
 })();
 load();
 </script>

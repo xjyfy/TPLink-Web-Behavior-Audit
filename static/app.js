@@ -2,7 +2,6 @@
 const api = (p) => fetch(p).then(r => r.json());
 
 function fillLocalDefault() {
-  // datetime-local 默认值：最近 1 小时
   const f = document.getElementById('fStart');
   if (f && !f.value) {
     const end = new Date();
@@ -29,7 +28,6 @@ const TAG = { web:'网站', url:'URL', app:'应用', dns:'DNS', other:'其他' }
 
 // ---------- 总览 ----------
 if (document.getElementById('mCpu')) {
-  // 宿主机指标
   function loadMetrics() {
     api('/api/host_metrics').then(m => {
       document.getElementById('mCpu').textContent = m.cpu + '%';
@@ -44,7 +42,6 @@ if (document.getElementById('mCpu')) {
   }
   loadMetrics(); setInterval(loadMetrics, 2000);
 
-  // 系统时间 + 运行时长
   function tickClock() {
     const now = new Date();
     const days = ['日','一','二','三','四','五','六'];
@@ -60,11 +57,9 @@ if (document.getElementById('mCpu')) {
       `系统已运行：${u.days}天${u.hours}小时${u.minutes}分${u.seconds}秒`;
   });
 
-  // 趋势图固定 24 小时
   api('/api/stats/trend?hours=24').then(t => Charts.line('trend', t.map(x=>x.hr), t.map(x=>x.n), '#1f6feb'));
   api('/api/stats/online_trend?hours=24').then(t => Charts.line('onlineTrend', t.map(x=>x.hr), t.map(x=>x.n), '#2ea44f'));
 
-  // 时间范围联动图表
   function rangeQs() {
     const h = document.querySelector('.range-btn.active').getAttribute('data-h');
     const end = new Date();
@@ -79,7 +74,6 @@ if (document.getElementById('mCpu')) {
     return q.toString();
   }
   function updateFullLinks() {
-    // 让"全部"链接继承当前时间范围，而不是全表统计
     const q = rangeQs();
     document.querySelectorAll('.full-link').forEach(a => {
       const base = a.getAttribute('href').split('?')[0];
@@ -91,7 +85,14 @@ if (document.getElementById('mCpu')) {
     api('/api/stats/apps?limit=10&' + rangeQs()).then(d => Charts.bars('appBars', d, k => goLogs({app_name:k}), {showIcons:true}));
     api('/api/stats/app_categories?' + rangeQs()).then(d => Charts.donut('catChart', d));
     api('/api/stats/protocol_top?' + rangeQs()).then(d => Charts.bars('protoBars', d));
-    api('/api/stats/hosts?limit=20&' + rangeQs()).then(d => Charts.bars('hostBars', d, k => goLogs({host_ip:k})));
+    api('/api/stats/hosts?limit=20&' + rangeQs()).then(d => {
+      const items = d.map((x,i)=>({...x, rank:i+1}));
+      const left = items.slice(0,10);
+      const right = items.slice(10,20);
+      const zipped = [];
+      left.forEach((x,i)=>{ zipped.push(x); if(right[i]) zipped.push(right[i]); });
+      Charts.bars('hostBars', zipped, k => goLogs({host_ip:k}), {rankField:'rank'});
+    });
   }
   loadRangeCharts();
   updateFullLinks();
@@ -113,13 +114,12 @@ let curPage = 1;
 let totalPages = 1;
 if (document.getElementById('logBody')) {
   fillLocalDefault();
-  // 从 URL 预填筛选（图表点击跳转过来）
   const up = new URLSearchParams(location.search);
   if (up.get('host_ip')) document.getElementById('fHost').value = up.get('host_ip');
   if (up.get('app_name')) document.getElementById('fApp').value = up.get('app_name');
   if (up.get('keyword')) document.getElementById('fKw').value = up.get('keyword');
   if (up.get('event_type')) document.getElementById('fType').value = up.get('event_type');
-  let hostMode = 'ip'; // 'ip' or 'note'
+  let hostMode = 'ip';
   function renderHostCell(r) {
     if (hostMode === 'note') {
       return r.host_note ? r.host_note : (r.host_ip||'');
@@ -187,7 +187,6 @@ if (document.getElementById('logBody')) {
   loadLogs();
   setInterval(() => {
     if (document.getElementById('liveChk').checked) {
-      // 自动刷新时窗口滑动为最近1小时
       const end = new Date();
       const start = new Date(end.getTime() - 3600 * 1000);
       document.getElementById('fStart').value = toLocal(start);
@@ -221,7 +220,6 @@ if (document.getElementById('exportBtn')) {
     const r = await fetch('/api/import_csv', {method:'POST', body:fd}).then(r=>r.json());
     document.getElementById('importResult').textContent = r.ok ? `成功导入 ${r.imported} 条` : ('失败: '+(r.error||''));
   };
-  // 系统设置：保留天数 + 不保存上网行为日志开关
   api('/api/settings').then(s => {
     document.getElementById('setDays').value = s.keep_days;
     document.getElementById('dropWebUsage').checked = !!s.drop_web_usage;
