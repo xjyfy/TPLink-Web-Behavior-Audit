@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block body %}
+<h2>{{ title }}</h2>
+<div class="panel">
+  <div class="row-between">
+    <span id="fullTotal"></span>
+    <span class="pager">
+      <button id="prevBtn">上一页</button>
+      <span id="pageInfo"></span>
+      <button id="nextBtn">下一页</button>
+    </span>
+  </div>
+  <table class="tbl">
+    <thead><tr><th style="width:60px">#</th><th>名称</th><th style="width:120px">次数</th></tr></thead>
+    <tbody id="fullBody"></tbody>
+  </table>
+</div>
+<script>
+const CHART = {{ chart_type|tojson }};
+let pageNum = 1;
+const SIZE = 20;
+function load() {
+  fetch('/api/stats/all/' + CHART + '?page=' + pageNum + '&size=' + SIZE)
+    .then(r=>r.json()).then(d => {
+      const totalPages = Math.max(1, Math.ceil(d.total / SIZE));
+      document.getElementById('fullTotal').textContent = '共 ' + d.total + ' 项';
+      document.getElementById('pageInfo').textContent = '第 ' + d.page + ' / ' + totalPages + ' 页';
+      document.getElementById('prevBtn').disabled = d.page <= 1;
+      document.getElementById('nextBtn').disabled = d.page >= totalPages;
+      document.getElementById('fullBody').innerHTML = d.rows.map((r,i) => {
+        const name = r.k||'(空)';
+        const icon = (CHART === 'apps' || CHART === 'app_categories')
+          ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon" onerror="this.style.display='none'"> `
+          : '';
+        return `
+        <tr>
+          <td>${(d.page-1)*SIZE + i + 1}</td>
+          <td>${icon}${name}</td>
+          <td>${r.n}</td>
+        </tr>`;
+      }).join('');
+    });
+}
+document.getElementById('prevBtn').onclick = () => { if(pageNum>1){pageNum--;load();} };
+document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
+load();
+</script>
+{% endblock %}
