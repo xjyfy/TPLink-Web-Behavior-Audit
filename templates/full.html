@@ -4,18 +4,24 @@
 <h2>{{ title }}</h2>
 <div class="panel">
   <div class="row-between">
-    <span id="fullTotal"></span>
+    <span>
+      <span id="fullTotal"></span>
+      <span id="uploadMsg" class="upload-msg"></span>
+    </span>
     <span class="pager">
       <button id="prevBtn">上一页</button>
       <span id="pageInfo"></span>
       <button id="nextBtn">下一页</button>
     </span>
   </div>
+  <div class="tbl-wrap">
   <table class="tbl">
     <thead><tr><th style="width:60px">#</th><th>名称</th><th style="width:120px">次数</th></tr></thead>
     <tbody id="fullBody"></tbody>
   </table>
+  </div>
 </div>
+<input type="file" id="appIconFile" accept="image/*" style="display:none">
 <script>
 const CHART = {{ chart_type|tojson }};
 let pageNum = 1;
@@ -30,9 +36,12 @@ function load() {
       document.getElementById('nextBtn').disabled = d.page >= totalPages;
       document.getElementById('fullBody').innerHTML = d.rows.map((r,i) => {
         const name = r.k||'(空)';
-        const icon = (CHART === 'apps' || CHART === 'app_categories')
-          ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon" onerror="this.style.display='none'"> `
-          : '';
+        const isApps = CHART === 'apps';
+        const icon = isApps
+          ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon clickable-icon" data-app="${encodeURIComponent(name)}" title="点击上传/更换此应用的图标" onerror="this.style.opacity=0.15"> `
+          : (CHART === 'app_categories'
+              ? `<img src="/app_icon/${encodeURIComponent(name)}" class="app-icon" onerror="this.style.display='none'"> `
+              : '');
         return `
         <tr>
           <td>${(d.page-1)*SIZE + i + 1}</td>
@@ -44,6 +53,44 @@ function load() {
 }
 document.getElementById('prevBtn').onclick = () => { if(pageNum>1){pageNum--;load();} };
 document.getElementById('nextBtn').onclick = () => { pageNum++; load(); };
+// 应用图标点击上传（仅"热门应用"列表）
+(function(){
+  const fileInput = document.getElementById('appIconFile');
+  if (!fileInput || CHART !== 'apps') return;
+  let upApp = null;
+  const msg = document.getElementById('uploadMsg');
+  function show(t){ if(msg) msg.textContent = t; }
+  document.getElementById('fullBody').addEventListener('click', e => {
+    const img = e.target.closest('img.clickable-icon');
+    if (!img) return;
+    upApp = decodeURIComponent(img.getAttribute('data-app'));
+    show('选择图片即可作为「'+upApp+'」的图标...');
+    fileInput.click();
+  });
+  fileInput.addEventListener('change', async () => {
+    const f = fileInput.files[0];
+    fileInput.value = '';
+    if (!f || !upApp) return;
+    const fd = new FormData(); fd.append('file', f);
+    show('正在上传「'+upApp+'」的图标...');
+    try {
+      const r = await fetch('/api/app_icon/' + encodeURIComponent(upApp), {method:'POST', body:fd}).then(r=>r.json());
+      if (r.ok) {
+        show('✔ 「'+upApp+'」图标已更新');
+        document.querySelectorAll('img.clickable-icon').forEach(img => {
+          if (img.getAttribute('data-app') === encodeURIComponent(upApp)) {
+            img.src = '/app_icon/' + encodeURIComponent(upApp) + '?t=' + Date.now();
+            img.style.opacity = '';
+          }
+        });
+      } else {
+        show('上传失败：' + (r.error||'未知错误'));
+      }
+    } catch (err) {
+      show('上传失败，请重试');
+    }
+  });
+})();
 load();
 </script>
 {% endblock %}
