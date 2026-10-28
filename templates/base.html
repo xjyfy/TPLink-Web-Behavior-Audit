@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}网络日志分析{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=4">
+</head>
+<body>
+{% if session.user %}
+<nav class="topnav">
+  <div class="brand">网络日志分析</div>
+  <a href="{{ url_for('dashboard') }}" class="{{ 'active' if request.path=='/dashboard' }}">总览</a>
+  <a href="{{ url_for('logs_page') }}" class="{{ 'active' if request.path=='/logs' }}">日志查询</a>
+  <a href="{{ url_for('hosts_page') }}" class="{{ 'active' if request.path=='/hosts' }}">终端管理</a>
+  <a href="{{ url_for('devices_page') }}" class="{{ 'active' if request.path=='/devices' }}">设备列表</a>
+  <a href="{{ url_for('export_page') }}" class="{{ 'active' if request.path=='/export' }}">导出与清理</a>
+  <div class="spacer"></div>
+  <span class="userinfo">{{ session.user }}</span>
+  <a href="#" id="chgPwBtn" class="chg-pw">修改密码</a>
+  <a href="{{ url_for('logout') }}">退出</a>
+</nav>
+{% endif %}
+<main class="container">
+{% block body %}{% endblock %}
+</main>
+<script src="{{ url_for('static', filename='charts.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=4"></script>
+</body>
+</html>
