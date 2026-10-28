@@ -14,7 +14,6 @@ def _g(pat, s):
 
 def parse_behavior(text):
     """behavior_ctl 行为管控日志内容 -> 结构化字段。"""
-    # 严格 IPv4 提取，避免吞进后续乱码字符
     m_ip = re.search(r'主机IP[:：]\s*(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})', text)
     d = {
         'usergroup': _g(r'用户组[:：]\s*([^,，。]+)', text),
@@ -40,8 +39,9 @@ def parse_behavior(text):
     dns = re.search(r'通过([^,，。]+?)查询([^。]+)', text)
     if dns:
         d['dns_query'] = dns.group(2).strip()
+        if not d.get('url'):
+            d['domain'] = d['dns_query']
 
-    # app=应用使用; web=带网站分组的网站访问; url=无分组带路径的完整URL; dns=域名查询
     if d['app_raw']:
         d['event_type'] = 'app'
     elif d['web_group']:
@@ -56,7 +56,6 @@ def parse_behavior(text):
 
 
 def parse_dhcp(text):
-    """dhcp_server 日志内容 -> MAC / 分配IP。"""
     return {
         'mac': _g(r'MAC\s*([0-9A-Fa-f][0-9A-Fa-f\-:]{16,17})', text),
         'assigned_ip': _g(r'分配了IP地址\s*([0-9\.]+)', text),
@@ -107,7 +106,6 @@ def parse_web_usage(text):
 
 
 def normalize_message(module, text):
-    """根据模块把日志内容解析为结构化 dict。"""
     if module == 'behavior_ctl':
         d = parse_behavior(text)
     elif module == 'web_usage':
@@ -120,7 +118,6 @@ def normalize_message(module, text):
 
 
 def _parse_rfc3164_ts(ts):
-    """'Oct 26 17:09:19' -> datetime（年份取当前年）。"""
     m = re.match(r'^(\w{3})\s+(\d+)\s+(\d{2}):(\d{2}):(\d{2})$', ts.strip())
     if not m:
         return None
@@ -135,21 +132,16 @@ def _parse_rfc3164_ts(ts):
 
 
 def parse_syslog_envelope(raw):
-    """解析一条 UDP syslog 报文，返回 (ts_datetime, device_name, message)。
-    兼容无信封（纯中文文本）的情况。"""
     if isinstance(raw, bytes):
         s = raw.decode('utf-8', errors='replace').strip()
     else:
         s = raw.strip()
-
     pri = None
     m = re.match(r'^<(\d+)>(.*)$', s)
     if m:
         pri = int(m.group(1))
         s = m.group(2)
-
     ts = None
-    # RFC3164: "Mon DD HH:MM:SS HOSTNAME tag: msg"
     m = re.match(r'^(\w{3}\s+\d+\s+\d{2}:\d{2}:\d{2})\s+(.*)$', s)
     if m:
         ts = _parse_rfc3164_ts(m.group(1))

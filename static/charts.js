@@ -97,15 +97,14 @@ const Charts = {
     const n = items.length;
     el.innerHTML = items.map((it,i)=>{
       const pct = Math.max(2, ((it.n - clip) / range * 100)).toFixed(1);
-      // 同色系从上到下由深到浅（蓝色系，第1条最深）
-      const light = 35 + (i / Math.max(n-1,1)) * 45; // 35% -> 80%
+      const light = 35 + (i / Math.max(n-1,1)) * 45;
       const color = `hsl(215, 80%, ${light}%)`;
       const k = (it.k||'').replace(/"/g,'&quot;');
       const iconHtml = opts.showIcons
         ? `<img src="/app_icon/${encodeURIComponent(it.k||'')}" class="bar-icon" alt="" onerror="this.style.display='none'"> `
         : '';
       return `<div class="bar-row ${onClick?'clickable':''}" data-k="${k}">
-        <span class="rank">${i+1}</span>
+        <span class="rank">${(opts.rankField && it[opts.rankField]) ? it[opts.rankField] : i+1}</span>
         <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
         <span class="k" title="${it.k||'(空)'}">${iconHtml}${it.k||'(空)'}</span>
         <span class="v">${it.n}</span>
