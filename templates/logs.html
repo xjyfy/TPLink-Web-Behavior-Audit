@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}日志查询 - 网络日志分析{% endblock %}
+{% block body %}
+<h2>日志查询</h2>
+<div class="panel filterbar">
+  <label>开始 <input type="datetime-local" id="fStart"></label>
+  <label>结束 <input type="datetime-local" id="fEnd"></label>
+  <label>终端IP <input id="fHost" placeholder="192.168.0.x"></label>
+  <label>事件
+    <select id="fType">
+      <option value="">全部</option>
+      <option value="web">网站访问</option>
+      <option value="url">URL访问</option>
+      <option value="app">应用使用</option>
+      <option value="dns">域名查询</option>
+      <option value="other">其他</option>
+    </select>
+  </label>
+  <label>应用类别 <input id="fCat" placeholder="如 网络购物"></label>
+  <label>应用名 <input id="fApp" placeholder="如 淘宝"></label>
+  <label>关键字 <input id="fKw" placeholder="网址/应用/IP/备注"></label>
+  <button id="searchBtn">查询</button>
+  <label class="chk"><input type="checkbox" id="liveChk"> 自动刷新(5s)</label>
+</div>
+
+<div class="panel">
+  <div class="row-between">
+    <span id="totalLbl"></span>
+    <span class="pager">
+      <span id="lastUpd" style="color:#2ea44f;font-size:12px"></span>
+      <button id="firstBtn">首页</button>
+      <button id="prevBtn">上一页</button>
+      <span id="pageInfo">第 1 / 1 页</span>
+      <button id="nextBtn">下一页</button>
+      <button id="lastBtn">末页</button>
+      <input id="jumpPage" type="number" min="1" placeholder="页码" style="width:60px;padding:3px;border:1px solid #ccc;border-radius:4px">
+      <button id="jumpBtn">跳转</button>
+    </span>
+  </div>
+  <table class="tbl">
+    <thead><tr>
+      <th>时间</th>
+      <th id="hostHead" style="cursor:pointer" title="点击切换 IP / 备注显示">终端 <span id="hostHeadMode" style="font-weight:normal;color:#1f6feb;font-size:11px"></span></th>
+      <th>事件</th><th>应用类别</th><th>应用名</th><th>网址/域名</th><th>原始内容</th>
+    </tr></thead>
+    <tbody id="logBody"></tbody>
+  </table>
+</div>
+{% endblock %}
