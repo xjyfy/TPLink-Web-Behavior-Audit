@@ -1,0 +1,16 @@
+SyslogAudit v2.1
+Release: 2026-10-28
+
+# 相对 v2 的增量改进（v2.1）
+- 明确并落实服务"脱离豆包等宿主进程独立运行"机制：
+  * 服务（watchdog.py → app.py）必须以系统/调度方式启动，父进程是系统服务（如 WmiPrvSE）或 Task Scheduler，绝不能由豆包等应用进程派生（否则宿主退出会连带终止服务）。
+  * 开机自启走 SYSTEM 计划任务（_run_hidden.vbs → watchdog.py），与豆包无关。
+- 新增 watchdog.py：app.py 退出后 5 秒自动重启，输出写入 data/service.log（自愈 + 崩溃留痕），已实测杀掉 app.py 后自动拉起。
+- install_service.bat / restart.bat / stop.bat 全部改为经由 watchdog.py 管理服务。
+
+# v2 原有修复（均已包含）
+- install.bat：拒绝 Windows 商店 python 占位符，自动 winget 安装 Python 3.11（--scope user）。
+- install.bat：本地离线包装不上时自动回退清华 PyPI 镜像。
+- install.bat：IP 检测取带默认网关的实体网卡，排除虚拟网卡。
+- install_service.bat：修正 pythonw.exe 路径拼接；修正 _run_hidden.vbs 的 VBScript 编译错误。
+- restart.bat：pythonw 路径自适应。
