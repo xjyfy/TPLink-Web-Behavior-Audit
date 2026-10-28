@@ -75,13 +75,13 @@ const Charts = {
     });
     const legend = items.slice(0,10).map((it,i)=>`
       <div class="lg-row"><span class="dot" style="background:${PALETTE[i%PALETTE.length]}"></span>
-      <span class="lg-k">${it.k||'(空)'}</span><span class="lg-v">${it.n}</span></div>`).join('');
+      <span class="lg-k">${it.k||'(空)'}</span><span class="lg-v" style="color:${PALETTE[i%PALETTE.length]}">${it.n}</span></div>`).join('');
     el.innerHTML = `<div class="donut-wrap">
-      <svg viewBox="0 0 140 140" width="140" height="140">${paths}
+      <div class="donut-svg"><svg viewBox="0 0 140 140" width="140" height="140">${paths}
         <circle cx="70" cy="70" r="${r}" fill="#fff"/>
         <text x="70" y="68" text-anchor="middle" font-size="16" font-weight="700" fill="#1f2d3d">${total}</text>
         <text x="70" y="84" text-anchor="middle" font-size="10" fill="#94a3b8">总计</text>
-      </svg>
+      </svg></div>
       <div class="lg">${legend}</div></div>`;
   },
 
