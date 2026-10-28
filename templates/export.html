@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}导出与清理 - 网络日志分析{% endblock %}
+{% block body %}
+<h2>日志导出与清理</h2>
+
+<div class="panel">
+  <h3>按时间段导出 CSV</h3>
+  <div class="filterbar">
+    <label>开始 <input type="datetime-local" id="eStart"></label>
+    <label>结束 <input type="datetime-local" id="eEnd"></label>
+    <button id="exportBtn">导出 CSV</button>
+  </div>
+  <p class="hint">导出后可使用下方按钮清空该时间段已导出的日志（不可恢复）。</p>
+
+  <h3 style="margin-top:20px">清空已导出日志</h3>
+  <div class="filterbar">
+    <button id="clearBtn" class="danger">清空所选时间段日志</button>
+  </div>
+  <div id="clearResult" class="hint"></div>
+</div>
+
+<div class="panel">
+  <h3>导入历史 CSV（TP-Link 导出格式）</h3>
+  <input type="file" id="csvFile" accept=".csv">
+  <button id="importBtn">导入</button>
+  <div id="importResult" class="hint"></div>
+</div>
+
+<div class="panel">
+  <h3>系统设置</h3>
+  <div class="filterbar">
+    <label>日志自动保留 <input type="number" id="setDays" min="1" max="3650" style="width:80px"> 天</label>
+    <button id="saveDaysBtn">保存</button>
+    <span id="daysResult" class="hint"></span>
+  </div>
+  <p class="hint">超过保留天数的日志会每小时自动清理。默认 30 天。</p>
+  <h3 style="margin-top:20px">服务操作</h3>
+  <div class="filterbar">
+    <button id="restartBtn" class="danger">重启服务</button>
+    <span id="restartResult" class="hint"></span>
+  </div>
+</div>
+{% endblock %}
