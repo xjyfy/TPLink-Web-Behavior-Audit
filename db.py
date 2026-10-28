@@ -34,7 +34,6 @@ CREATE INDEX IF NOT EXISTS idx_event ON logs(event_type);
 CREATE INDEX IF NOT EXISTS idx_domain ON logs(domain);
 CREATE INDEX IF NOT EXISTS idx_appcat ON logs(app_category);
 CREATE INDEX IF NOT EXISTS idx_appname ON logs(app_name);
--- 复合索引：时间过滤 + 聚合列（覆盖最常见的查询模式）
 CREATE INDEX IF NOT EXISTS idx_ts_domain ON logs(ts, domain);
 CREATE INDEX IF NOT EXISTS idx_ts_appname ON logs(ts, app_name);
 CREATE INDEX IF NOT EXISTS idx_ts_host ON logs(ts, host_ip);
@@ -62,20 +61,16 @@ CREATE TABLE IF NOT EXISTS devices (
   custom_name TEXT DEFAULT ''
 );
 
--- 每小时预聚合汇总表：收到日志时增量累加，趋势查询读此表（O(小时数)），避免对 logs 大表全表聚合。
--- hourly_total: 每小时日志总数（ts 截取到小时）
 CREATE TABLE IF NOT EXISTS hourly_total (
   hour TEXT PRIMARY KEY,
   total INTEGER NOT NULL DEFAULT 0
 );
--- hourly_hosts: 每小时出现过的去重 host_ip（用于每小时在线终端数）
 CREATE TABLE IF NOT EXISTS hourly_hosts (
   hour TEXT NOT NULL,
   host_ip TEXT NOT NULL,
   PRIMARY KEY (hour, host_ip)
 );
 CREATE INDEX IF NOT EXISTS idx_hh_hour ON hourly_hosts(hour);
--- hourly_app: 每小时应用聚合（热门应用 / 应用类别 / 网络协议）
 CREATE TABLE IF NOT EXISTS hourly_app (
   hour TEXT NOT NULL,
   app_category TEXT NOT NULL DEFAULT '',
@@ -83,14 +78,12 @@ CREATE TABLE IF NOT EXISTS hourly_app (
   n INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (hour, app_category, app_name)
 );
--- hourly_domain: 每小时域名聚合（热门网站）
 CREATE TABLE IF NOT EXISTS hourly_domain (
   hour TEXT NOT NULL,
   domain TEXT NOT NULL,
   n INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (hour, domain)
 );
--- hourly_device: 每小时设备聚合（设备列表：数量 + 最近时间）
 CREATE TABLE IF NOT EXISTS hourly_device (
   hour TEXT NOT NULL,
   device_ip TEXT NOT NULL,
@@ -112,12 +105,10 @@ def _conn():
 def init_db():
     c = _conn()
     c.executescript(_SCHEMA)
-    # 迁移：旧库加 hostname 列
     try:
         c.execute("ALTER TABLE hosts ADD COLUMN hostname TEXT DEFAULT ''")
     except sqlite3.OperationalError:
         pass
-    # 默认管理员
     row = c.execute("SELECT id FROM admin WHERE id=1").fetchone()
     if not row:
         c.execute("INSERT INTO admin(id, username, pw_hash) VALUES (1,?,?)",
@@ -160,13 +151,11 @@ def change_password(old_pw, new_pw):
 
 
 def _agg_hour(rec):
-    """返回日志 rec 对应的小时键与 host_ip（用于增量维护 hourly 汇总表）。"""
     ts = rec.get('ts')
     return (ts[:13] if ts else None), (rec.get('host_ip') or None)
 
 
 def insert_log(rec):
-    """rec: dict with normalized fields + ts + device_name/ip/module/level/raw."""
     c = _conn()
     c.execute("""INSERT INTO logs
         (ts, device_name, device_ip, module, level, raw, usergroup, host_ip,
@@ -181,7 +170,6 @@ def insert_log(rec):
 
 
 def _agg_insert(c, rec):
-    """单条日志增量维护全部 hourly 预聚合表。"""
     hour = rec.get('ts')[:13] if rec.get('ts') else None
     if not hour:
         return
@@ -218,7 +206,6 @@ def insert_many(rows):
 
 
 def _agg_insert_many(c, rows):
-    """批量增量维护全部 hourly 预聚合表。"""
     total_map = {}
     host_set = set()
     app_map = {}
@@ -317,14 +304,12 @@ def _range_where(start=None, end=None, alias=""):
 
 
 def _hour_range(hours):
-    """返回最近 hours 小时窗口的整点起点 hour 键（'%Y-%m-%d %H'）。"""
     now = datetime.now().replace(minute=0, second=0, microsecond=0)
     start = (now - timedelta(hours=hours - 1)).strftime('%Y-%m-%d %H')
     return now, start
 
 
 def trend(hours=24):
-    """日志量趋势：读 hourly 汇总表（O(hours)），不再扫描 logs 大表。"""
     c = _conn()
     now, start = _hour_range(hours)
     rows = c.execute("""SELECT hour hr, total n FROM hourly_total
@@ -339,7 +324,6 @@ def trend(hours=24):
 
 
 def online_trend(hours=24):
-    """每小时在线终端数（去重 host_ip）：读 hourly_hosts 汇总表（O(hours)）。"""
     c = _conn()
     now, start = _hour_range(hours)
     rows = c.execute("""SELECT hour hr, COUNT(*) n FROM hourly_hosts
@@ -354,7 +338,6 @@ def online_trend(hours=24):
 
 
 def _recalc_hour(c, hour):
-    """从事务连接 c 从 logs 重算某小时的 total / 去重 host / app / domain / device（清理/回填后保持一致）。"""
     lo = hour + ':00:00'
     hi = hour + ':59:59'
     c.execute("DELETE FROM hourly_total WHERE hour=?", (hour,))
@@ -382,11 +365,9 @@ def _recalc_hour(c, hour):
 
 
 def backfill_hourly():
-    """服务启动时后台执行一次：用 logs 全量回填 hourly 汇总表（幂等、加写锁保证与增量不冲突）。
-    只回填缺失小时（INSERT OR IGNORE / ON CONFLICT 覆盖），已有小时保留增量结果。"""
     try:
         c = _conn()
-        c.execute("BEGIN IMMEDIATE")  # 写锁，避免与 insert_log 增量并发产生漏算/重复
+        c.execute("BEGIN IMMEDIATE")
         try:
             c.execute("""INSERT INTO hourly_total(hour,total)
                 SELECT substr(ts,1,13) hour, COUNT(*) n FROM logs GROUP BY hour
@@ -423,7 +404,6 @@ def _cond(w, extra):
 
 
 def _hour_where(start, end):
-    """把 start/end（'%Y-%m-%d %H:%M:%S'）转成预聚合表的小时范围 WHERE。"""
     where, p = [], []
     if start:
         where.append("hour >= ?"); p.append(start[:13])
@@ -451,7 +431,6 @@ def top_domains(limit=10, start=None, end=None):
 
 
 def app_categories(start=None, end=None):
-    """应用类别分布，排除'网络基础协议'（单独走协议TOP）。读 hourly_app。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""SELECT app_category k, SUM(n) n FROM hourly_app
@@ -462,7 +441,6 @@ def app_categories(start=None, end=None):
 
 
 def app_categories_all(start=None, end=None):
-    """应用类别全量（不分页）。读 hourly_app。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""SELECT app_category k, SUM(n) n FROM hourly_app
@@ -473,7 +451,6 @@ def app_categories_all(start=None, end=None):
 
 
 def apps_by_category(category, start=None, end=None, limit=200):
-    """指定应用类别下的具体应用（app_name）计数，用于类别完整列表页展开明细。读 hourly_app。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""SELECT app_name k, SUM(n) n FROM hourly_app
@@ -483,9 +460,39 @@ def apps_by_category(category, start=None, end=None, limit=200):
     return [dict(r) for r in rows]
 
 
+def apps_by_category_devices(category, start=None, end=None):
+    """指定应用类别下，每个具体应用在时间段内使用的去重终端设备数。
+    以 host_ip（真实终端）统计，排除上报设备自身（host_ip != device_ip，即路由器）。
+    返回 {app_name: device_count}。直接查 logs。"""
+    w, p = _range_where(start, end)
+    c = _conn()
+    rows = c.execute(f"""SELECT app_name k, COUNT(DISTINCT host_ip) devices
+        FROM logs
+        {_cond(w, "app_category=? AND app_name != '' AND host_ip IS NOT NULL AND host_ip != '' AND host_ip != device_ip")}
+        GROUP BY app_name""", p + [category]).fetchall()
+    c.close()
+    return {r['k']: r['devices'] for r in rows}
+
+
+def app_devices(app_name, start=None, end=None, page=1, size=20):
+    """指定应用在时间段内使用的终端设备分页列表（去重 host_ip，排除上报设备自身）。
+    返回 {total, page, size, rows:[{ip, mac, note, n}]}：IP、MAC(hosts表反查)、备注、使用次数。"""
+    w, p = _range_where(start, end)
+    cond = _cond(w, "app_name=? AND host_ip IS NOT NULL AND host_ip != '' AND host_ip != device_ip")
+    c = _conn()
+    total = c.execute(
+        "SELECT COUNT(DISTINCT host_ip) n FROM logs " + cond,
+        p + [app_name]).fetchone()['n']
+    rows = c.execute("""SELECT host_ip ip, COUNT(*) n,
+        (SELECT mac FROM hosts h WHERE h.ip = logs.host_ip LIMIT 1) mac,
+        (SELECT note FROM hosts h WHERE h.ip = logs.host_ip LIMIT 1) note
+        FROM logs """ + cond + " GROUP BY host_ip ORDER BY n DESC LIMIT ? OFFSET ?",
+        p + [app_name, size, (page - 1) * size]).fetchall()
+    c.close()
+    return {'total': total, 'page': page, 'size': size, 'rows': [dict(r) for r in rows]}
+
+
 def top_apps(limit=10, start=None, end=None):
-    """应用TOP，排除"网络基础协议"类别（HTTP/HTTPS/NTP/DNS 等，单独走协议TOP）。
-    读 hourly_app，排除该类别 + http/https 名兜底。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""SELECT app_name k, SUM(n) n FROM hourly_app
@@ -496,8 +503,6 @@ def top_apps(limit=10, start=None, end=None):
 
 
 def protocol_top(start=None, end=None):
-    """网络协议TOP：仅日志里有明确协议名的（网络基础协议下的 app_name，如 HTTP/HTTPS/NTP）。
-    域名类访问不并入，统一在热门网站图表展示。读 hourly_app。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""
@@ -510,7 +515,6 @@ def protocol_top(start=None, end=None):
 
 
 def protocol_top_all(start=None, end=None):
-    """网络协议全量（不分页）。读 hourly_app。"""
     w, p = _hour_where(start, end)
     c = _conn()
     rows = c.execute(f"""
@@ -540,7 +544,6 @@ def delete_range(start, end):
     c = _conn()
     cur = c.execute("DELETE FROM logs WHERE ts >= ? AND ts <= ?", (start, end))
     n = cur.rowcount
-    # 同步 hourly 汇总表：删除受影响小时并重算（保证与 logs 一致）
     s_h, e_h = start[:13], end[:13]
     cur_h = s_h
     while cur_h <= e_h:
@@ -556,7 +559,6 @@ def prune(days):
     c = _conn()
     cur = c.execute("DELETE FROM logs WHERE ts < ?", (cutoff,))
     n = cur.rowcount
-    # 同步 hourly 汇总表：删除 cutoff 整点之前的所有小时，cutoff 所在小时重算（可能部分删除）
     cutoff_hour = cutoff[:13]
     c.execute("DELETE FROM hourly_total WHERE hour < ?", (cutoff_hour,))
     c.execute("DELETE FROM hourly_hosts WHERE hour < ?", (cutoff_hour,))
@@ -571,12 +573,10 @@ def upsert_host(mac, ip, ts=None):
     if not mac:
         return
     ts = ts or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    # 反向解析主机名（DNS / NetBIOS）
     hostname = _resolve_hostname(ip)
     c = _conn()
     row = c.execute("SELECT mac, ip FROM hosts WHERE mac=?", (mac,)).fetchone()
     if row:
-        # IP 变了才重新解析主机名
         old = dict(row)
         new_hostname = hostname if old['ip'] != ip else None
         if new_hostname:
@@ -591,7 +591,6 @@ def upsert_host(mac, ip, ts=None):
 
 
 def _resolve_hostname(ip):
-    """反向解析 IP 对应的主机名，失败返回空字符串。"""
     import socket
     if not ip or not ip[0].isdigit():
         return ''
@@ -632,10 +631,11 @@ def set_host_note(mac, note):
 
 def list_hosts_page(keyword=None, page=1, size=20):
     """终端列表分页查询 + 统计。
-    返回 {total(当前筛选匹配数), online_total(最近1小时在线终端数),
+    返回 {total(当前筛选匹配数), online_total(最近在线终端数),
           all_total(终端总数), page, size, rows(带 online 标记)}。
-    online 判定：logs 中该 IP 最近 1 小时有记录即视为在线。"""
-    cutoff = (datetime.now() - timedelta(hours=1)).strftime('%Y-%m-%d %H:%M:%S')
+    online 判定改用 hourly_hosts 预聚合表（最近2个整点小时内出现过 host_ip 即视为在线），
+    避免对 logs 大表做时间过滤聚合，显著提速。"""
+    cutoff_hour = (datetime.now() - timedelta(hours=1)).strftime('%Y-%m-%d %H')
     w, p = "", []
     if keyword:
         w = "WHERE mac LIKE ? OR ip LIKE ? OR note LIKE ? OR hostname LIKE ?"
@@ -644,19 +644,18 @@ def list_hosts_page(keyword=None, page=1, size=20):
     c = _conn()
     all_total = c.execute("SELECT COUNT(*) n FROM hosts").fetchone()['n']
     online_total = c.execute(
-        "SELECT COUNT(DISTINCT host_ip) n FROM logs WHERE ts>=? AND host_ip IS NOT NULL",
-        (cutoff,)).fetchone()['n']
+        "SELECT COUNT(DISTINCT host_ip) n FROM hourly_hosts WHERE hour >= ? AND host_ip IS NOT NULL",
+        (cutoff_hour,)).fetchone()['n']
     total = c.execute(f"SELECT COUNT(*) n FROM hosts {w}", p).fetchone()['n']
     rows = c.execute(f"SELECT * FROM hosts {w} ORDER BY last_seen DESC LIMIT ? OFFSET ?",
                      p + [size, (page - 1) * size]).fetchall()
-    # 批量判断当前页各 IP 是否在线（避免逐行查询）
     ips = [r['ip'] for r in rows if r['ip']]
     online_ips = set()
     if ips:
         ph = ','.join('?' * len(ips))
         for r in c.execute(
-                f"SELECT DISTINCT host_ip FROM logs WHERE ts>=? AND host_ip IN ({ph})",
-                [cutoff] + ips).fetchall():
+                f"SELECT DISTINCT host_ip FROM hourly_hosts WHERE hour >= ? AND host_ip IN ({ph})",
+                [cutoff_hour] + ips).fetchall():
             online_ips.add(r['host_ip'])
     out = []
     for r in rows:
@@ -669,7 +668,6 @@ def list_hosts_page(keyword=None, page=1, size=20):
 
 
 def host_note_map_by_ip():
-    """返回 {ip: note}，用于日志列表里按 IP 补备注。"""
     c = _conn()
     rows = c.execute("SELECT ip, note FROM hosts WHERE note IS NOT NULL AND note != ''").fetchall()
     c.close()
@@ -678,7 +676,6 @@ def host_note_map_by_ip():
 
 # ---------- 数据来源设备 ----------
 def list_devices():
-    """从 hourly_device 预聚合表聚合出所有上报设备（数量+最近时间），LEFT JOIN devices 取自定义名称。"""
     c = _conn()
     rows = c.execute("""
         SELECT h.device_ip,
@@ -708,7 +705,7 @@ def set_device_name(device_ip, custom_name):
 # ---------- 系统设置 ----------
 def get_setting(key, default=None):
     c = _conn()
-    row = c.execute("CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)").fetchall()
+    c.execute("CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)").fetchall()
     r = c.execute("SELECT v FROM settings WHERE k=?", (key,)).fetchone()
     c.close()
     return r[0] if r else default
