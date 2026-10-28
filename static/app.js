@@ -80,7 +80,7 @@ if (document.getElementById('mCpu')) {
   }
   function loadRangeCharts() {
     api('/api/stats/domains?limit=10&' + rangeQs()).then(d => Charts.bars('domBars', d, k => goLogs({keyword:k})));
-    api('/api/stats/apps?limit=10&' + rangeQs()).then(d => Charts.bars('appBars', d, k => goLogs({app_name:k})));
+    api('/api/stats/apps?limit=10&' + rangeQs()).then(d => Charts.bars('appBars', d, k => goLogs({app_name:k}), {showIcons:true}));
     api('/api/stats/app_categories?' + rangeQs()).then(d => Charts.donut('catChart', d));
     api('/api/stats/protocol_top?' + rangeQs()).then(d => Charts.bars('protoBars', d));
     api('/api/stats/hosts?limit=20&' + rangeQs()).then(d => Charts.bars('hostBars', d, k => goLogs({host_ip:k})));
