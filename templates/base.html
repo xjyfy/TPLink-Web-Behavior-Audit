@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block title %}网络日志分析{% endblock %}</title>
-<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=4">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v=6">
 </head>
 <body>
 {% if session.user %}
@@ -24,7 +24,7 @@
 <main class="container">
 {% block body %}{% endblock %}
 </main>
-<script src="{{ url_for('static', filename='charts.js') }}?v=4"></script>
-<script src="{{ url_for('static', filename='app.js') }}?v=4"></script>
+<script src="{{ url_for('static', filename='charts.js') }}?v=5"></script>
+<script src="{{ url_for('static', filename='app.js') }}?v=5"></script>
 </body>
 </html>
