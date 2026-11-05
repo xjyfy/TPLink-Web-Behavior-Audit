@@ -7,8 +7,8 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "syslog.db")
 
 # syslog UDP 监听端口（标准 514；Windows 无需管理员即可绑定，但需放行防火墙）
-# 只监听物理网卡 lan1 的 IP（192.168.31.41），不监听虚拟网卡
-SYSLOG_UDP_HOST = "192.168.31.41"
+# 监听所有网卡（0.0.0.0）；如需只监听某块网卡，可改为该网卡 IP
+SYSLOG_UDP_HOST = "0.0.0.0"
 SYSLOG_UDP_PORT = 514
 
 # Web 后台监听
