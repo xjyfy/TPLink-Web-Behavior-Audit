@@ -39,36 +39,51 @@ _breaker_until = 0.0      # 熔断截止时间戳（0 = 未熔断）
 
 
 # ---------- 配置读取（来自 settings 表，后台可改） ----------
+# 全部配置合并成一次读取 + 5 秒 TTL 缓存：入库路径每条日志会调 submit()，
+# 解析线程每个域名还要读 base/token/concurrency，原实现每次都新建一次 SQLite 连接
+# （Windows 下打开 4.8G 库连接的开销很明显），高峰时形成连接风暴、单核吃满。
+_cfg = {'base': DEFAULT_BASE_URL, 'token': DEFAULT_TOKEN, 'conc': 20, 'enabled': True, 't': 0.0}
+_cfg_lock = threading.Lock()
+
+
+def _refresh_cfg():
+    try:
+        host = (db.get_setting('dns_host', '127.0.0.1') or '127.0.0.1').strip().rstrip('/')
+        port = db.get_setting('dns_port', 888)
+        token = db.get_setting('dns_token', DEFAULT_TOKEN) or DEFAULT_TOKEN
+        conc = max(1, int(db.get_setting('dns_concurrency', 20)))
+        enabled = db.get_setting('dns_enabled', '1') != '0'
+    except Exception:
+        return
+    # 并发上限 32：线程再多只会增加 GIL 争用与上下文切换，对本地 2ms 级接口没有收益
+    _cfg.update(base=f"http://{host}:{port}", token=token, conc=min(conc, 32),
+                enabled=enabled, t=time.time())
+
+
+def _cfg_get():
+    if time.time() - _cfg['t'] >= 5:
+        with _cfg_lock:
+            if time.time() - _cfg['t'] >= 5:
+                _refresh_cfg()
+    return _cfg
+
+
 def _enabled():
     """网站名称查询开关：settings.dns_enabled，'0'=关闭，其它=开启（默认开启）。"""
-    try:
-        return db.get_setting('dns_enabled', '1') != '0'
-    except Exception:
-        return True
+    return _cfg_get()['enabled']
 
 
 def _base():
     """接口服务器地址与端口（settings.dns_host / dns_port），默认 http://127.0.0.1:888。"""
-    try:
-        host = (db.get_setting('dns_host', '127.0.0.1') or '127.0.0.1').strip().rstrip('/')
-        port = db.get_setting('dns_port', 888)
-        return f"http://{host}:{port}"
-    except Exception:
-        return DEFAULT_BASE_URL
+    return _cfg_get()['base']
 
 
 def _token():
-    try:
-        return db.get_setting('dns_token', DEFAULT_TOKEN) or DEFAULT_TOKEN
-    except Exception:
-        return DEFAULT_TOKEN
+    return _cfg_get()['token']
 
 
 def _concurrency():
-    try:
-        return max(1, int(db.get_setting('dns_concurrency', 20)))
-    except Exception:
-        return 20
+    return _cfg_get()['conc']
 
 
 # ---------- 域名 / IP 提取 ----------
@@ -128,11 +143,34 @@ def _resolve_one(domain):
         return '', '', False  # 超时/异常：不写缓存
 
 
+# 模块级线程池：原实现每批 _pending 都新建一个 ThreadPoolExecutor，高峰时反复创建/销毁
+# 大量线程会显著抬高 CPU 并拖慢入库，故改为复用；并发数变化时按需重建。
+_pool = None
+_pool_size = 0
+_pool_lock = threading.Lock()
+
+
+def _get_pool():
+    global _pool, _pool_size
+    n = _concurrency()
+    with _pool_lock:
+        if _pool is None or n != _pool_size:
+            old = _pool
+            _pool = ThreadPoolExecutor(max_workers=n)
+            _pool_size = n
+            if old is not None:
+                try:
+                    old.shutdown(wait=False)
+                except Exception:
+                    pass
+        return _pool
+
+
 def _run_batch(todo):
-    """并发解析一批未缓存域名并写缓存。"""
+    """并发解析一批未缓存域名并写缓存。复用模块级线程池，避免每批新建线程的开销。"""
     if not todo:
         return
-    conc = _concurrency()
+    pool = _get_pool()
 
     def work(d):
         sn, gt, ok = _resolve_one(d)
@@ -143,35 +181,63 @@ def _run_batch(todo):
                 db.cache_put(d, sn, gt)
         except Exception as e:
             print('[resolver] 写缓存失败:', d, e)
+            return
+        with _mem_lock:
+            _mem[d] = time.time() + _MEM_TTL
 
-    with ThreadPoolExecutor(max_workers=conc) as ex:
-        list(ex.map(work, todo))
+    list(pool.map(work, todo))
+
+
+# 已解析域名的内存命中表：domain -> 过期时间戳。缓存命中时连数据库都不用查，
+# 这是解析路径最大的 CPU 来源（原实现每次循环都要对全部待解析域名批量查库）。
+_mem = {}
+_mem_lock = threading.Lock()
+_MEM_TTL = 24 * 3600
+# 每轮最多处理的域名数，避免一轮 list/查缓存的 Python 开销随积压量线性膨胀
+_MAX_BATCH = 1000
 
 
 def _worker():
     global _breaker_until, _conn_errors
     while _running:
         with _lock:
-            items = list(_pending)
-            _pending.clear()
+            if len(_pending) > _MAX_BATCH:
+                items = list(_pending)[:_MAX_BATCH]
+                _pending.difference_update(items)
+            else:
+                items = list(_pending)
+                _pending.clear()
         if not items:
+            # 必须先 clear 再 wait：Event 处于 set 状态时 wait() 会立即返回，
+            # 原实现只 set 不 clear，导致 wait 变成 100% CPU 的空转死循环。
+            _wake.clear()
             _wake.wait(timeout=3)
             continue
         if _breaker_until:
             if time.time() < _breaker_until:
-                continue  # 熔断中：跳过本批，等待恢复
+                # 熔断中：把本批原样放回待解析集合（不丢弃），并休眠等待，避免忙等空转吃满 CPU
+                with _lock:
+                    _pending.update(items)
+                time.sleep(5)
+                continue
             with _lock:
                 _breaker_until = 0.0
                 _conn_errors = 0  # 熔断恢复：重置计数
-        # 过滤已缓存的（命中直接跳过，不调接口不写库）
-        todo = []
-        for d in items:
-            try:
-                hit = db.cache_lookup(d)
-            except Exception:
-                hit = None
-            if hit is None:
-                todo.append(d)
+        # 先过内存命中表（绝大多数重复域名在这里就结束，不查库）
+        now = time.time()
+        with _mem_lock:
+            items = [d for d in items if _mem.get(d, 0) <= now]
+        # 再落到 24h 缓存表（进程重启后内存表为空，靠它兜底）
+        try:
+            hit_set = db.cache_lookup_many(items)
+        except Exception:
+            hit_set = set()
+        if hit_set:
+            with _mem_lock:
+                exp = now + _MEM_TTL
+                for d in hit_set:
+                    _mem[d] = exp
+        todo = [d for d in items if d not in hit_set]
         _run_batch(todo)
 
 
@@ -184,12 +250,23 @@ def _cache_cleaner():
                 print(f"[resolver] 清理过期缓存 {n} 条并回写")
         except Exception as e:
             print('[resolver] 缓存清理失败:', e)
+        # 同步清理内存命中表的过期项，防止唯一域名长期累积占内存
+        try:
+            now = time.time()
+            with _mem_lock:
+                for d in [d for d, e in _mem.items() if e <= now]:
+                    _mem.pop(d, None)
+        except Exception:
+            pass
         time.sleep(3600)
 
 
 def submit(domain):
     """把日志中解析出的域名/IP 加入待解析队列（去重、不阻塞）。查询开关关闭时不解析。"""
     if not domain or not _enabled():
+        return
+    # 内存命中：该域名已完成解析，直接丢弃，避免进入待解析集合反复查库
+    if _mem.get(domain, 0) > time.time():
         return
     with _lock:
         _pending.add(domain)

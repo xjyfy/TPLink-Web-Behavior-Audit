@@ -182,6 +182,19 @@ def _conn():
     return c
 
 
+_local = threading.local()
+
+
+def _ro_conn():
+    """线程本地只读连接：设置、缓存这类高频只读查询复用一个连接，
+    避免每次调用都新建连接（Windows 下打开 4.8G 库连接开销明显，采样显示占总 CPU 一半）。"""
+    c = getattr(_local, 'conn', None)
+    if c is None:
+        c = _conn()
+        _local.conn = c
+    return c
+
+
 def init_db():
     c = _conn()
     # journal_mode 是数据库持久属性，在此设一次即可，不必每个连接重复设置（避免额外抢锁）
@@ -496,34 +509,41 @@ def _agg_insert_many(c, rows):
                     cur['name'] = r.get('device_name') or ''
                     cur['ts'] = ts
                 cur['cnt'] += 1
-    for hour, n in total_map.items():
-        c.execute("INSERT INTO hourly_total(hour,total) VALUES(?,?) "
-                  "ON CONFLICT(hour) DO UPDATE SET total=total+?", (hour, n, n))
+    # 以下全部改为 executemany 批量提交：同一批内按 key 已聚合，逐条 execute 在高峰（每分钟数千条）
+    # 会产生大量语句解析/参数绑定开销，是入库线程 CPU 的主要来源。
+    if total_map:
+        c.executemany("INSERT INTO hourly_total(hour,total) VALUES(?,?) "
+                      "ON CONFLICT(hour) DO UPDATE SET total=total+?",
+                      [(h, n, n) for h, n in total_map.items()])
     if host_set:
         c.executemany("INSERT OR IGNORE INTO hourly_hosts(hour,host_ip) VALUES(?,?)", list(host_set))
-    for m10, n in m10_total_map.items():
-        c.execute("INSERT INTO min10_total(min10,total) VALUES(?,?) "
-                  "ON CONFLICT(min10) DO UPDATE SET total=total+?", (m10, n, n))
+    if m10_total_map:
+        c.executemany("INSERT INTO min10_total(min10,total) VALUES(?,?) "
+                      "ON CONFLICT(min10) DO UPDATE SET total=total+?",
+                      [(m, n, n) for m, n in m10_total_map.items()])
     if m10_host_set:
         c.executemany("INSERT OR IGNORE INTO min10_hosts(min10,host_ip) VALUES(?,?)", list(m10_host_set))
-    for (hour, cat, name), n in app_map.items():
-        c.execute("INSERT INTO hourly_app(hour,app_category,app_name,n) VALUES(?,?,?,?) "
-                  "ON CONFLICT(hour,app_category,app_name) DO UPDATE SET n=n+?", (hour, cat, name, n, n))
-    for (hour, ip, cat), n in host_cat_map.items():
-        c.execute("INSERT INTO hourly_host_cat(hour,host_ip,app_category,n) VALUES(?,?,?,?) "
-                  "ON CONFLICT(hour,host_ip,app_category) DO UPDATE SET n=n+?",
-                  (hour, ip, cat, n, n))
-    for (hour, domain), n in domain_map.items():
-        c.execute("INSERT INTO hourly_domain(hour,domain,n) VALUES(?,?,?) "
-                  "ON CONFLICT(hour,domain) DO UPDATE SET n=n+?", (hour, domain, n, n))
-    for cat, ci in cat_map.items():
-        c.execute("INSERT INTO app_categories(name,n,first_seen,last_seen) VALUES(?,?,?,?) "
-                  "ON CONFLICT(name) DO UPDATE SET n=n+?, last_seen=excluded.last_seen",
-                  (cat, ci['cnt'], ci['first'], ci['last'], ci['cnt']))
-    for (hour, ip), info in device_map.items():
-        c.execute("INSERT INTO hourly_device(hour,device_ip,device_name,n,last_ts) VALUES(?,?,?,?,?) "
-                  "ON CONFLICT(hour,device_ip) DO UPDATE SET n=n+?, device_name=excluded.device_name, last_ts=excluded.last_ts",
-                  (hour, ip, info['name'], info['cnt'], info['ts'], info['cnt']))
+    if app_map:
+        c.executemany("INSERT INTO hourly_app(hour,app_category,app_name,n) VALUES(?,?,?,?) "
+                      "ON CONFLICT(hour,app_category,app_name) DO UPDATE SET n=n+?",
+                      [(h, cat, name, n, n) for (h, cat, name), n in app_map.items()])
+    if host_cat_map:
+        c.executemany("INSERT INTO hourly_host_cat(hour,host_ip,app_category,n) VALUES(?,?,?,?) "
+                      "ON CONFLICT(hour,host_ip,app_category) DO UPDATE SET n=n+?",
+                      [(h, ip, cat, n, n) for (h, ip, cat), n in host_cat_map.items()])
+    if domain_map:
+        c.executemany("INSERT INTO hourly_domain(hour,domain,n) VALUES(?,?,?) "
+                      "ON CONFLICT(hour,domain) DO UPDATE SET n=n+?",
+                      [(h, d, n, n) for (h, d), n in domain_map.items()])
+    if cat_map:
+        c.executemany("INSERT INTO app_categories(name,n,first_seen,last_seen) VALUES(?,?,?,?) "
+                      "ON CONFLICT(name) DO UPDATE SET n=n+?, last_seen=excluded.last_seen",
+                      [(cat, ci['cnt'], ci['first'], ci['last'], ci['cnt']) for cat, ci in cat_map.items()])
+    if device_map:
+        c.executemany("INSERT INTO hourly_device(hour,device_ip,device_name,n,last_ts) VALUES(?,?,?,?,?) "
+                      "ON CONFLICT(hour,device_ip) DO UPDATE SET n=n+?, device_name=excluded.device_name, last_ts=excluded.last_ts",
+                      [(h, ip, info['name'], info['cnt'], info['ts'], info['cnt'])
+                       for (h, ip), info in device_map.items()])
     # 终端最后在线时间：本批日志涉及的 IP 批量刷新（每批约 17 个 IP，成本可忽略）。
     # 只更新 hosts 已存在的 IP，且只前进不后退。
     if host_last_map:
@@ -1399,11 +1419,19 @@ def delete_host(mac):
 
 
 # ---------- 系统设置 ----------
+# settings 表建表语句只在进程内执行一次：入库路径每条日志都会读配置，
+# 原实现每次读都执行 CREATE TABLE IF NOT EXISTS，高峰时形成不必要的开销。
+_SETTINGS_READY = False
+
+
 def get_setting(key, default=None):
-    c = _conn()
-    row = c.execute("CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)").fetchall()
+    global _SETTINGS_READY
+    c = _ro_conn()
+    if not _SETTINGS_READY:
+        c.execute("CREATE TABLE IF NOT EXISTS settings (k TEXT PRIMARY KEY, v TEXT)")
+        c.commit()
+        _SETTINGS_READY = True
     r = c.execute("SELECT v FROM settings WHERE k=?", (key,)).fetchone()
-    c.close()
     return r[0] if r else default
 
 
@@ -1450,15 +1478,32 @@ def set_icon_path(app_name, path):
 
 def cache_lookup(domain):
     """查 24h 缓存表，返回未过期的记录 dict；未命中或已过期返回 None。"""
-    c = _conn()
+    c = _ro_conn()
     r = c.execute("SELECT domain,site_name,geo_tag,expire_at FROM domain_cache WHERE domain=?", (domain,)).fetchone()
-    c.close()
     if not r:
         return None
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     if r['expire_at'] and r['expire_at'] <= now:
         return None
     return dict(r)
+
+
+def cache_lookup_many(domains, chunk=500):
+    """批量查 24h 缓存表，返回未过期的域名集合（一次连接多域名，避免逐条新建连接的开销）。"""
+    found = set()
+    ds = [d for d in (domains or []) if d]
+    if not ds:
+        return found
+    now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    c = _ro_conn()
+    for i in range(0, len(ds), chunk):
+        part = ds[i:i + chunk]
+        sql = ("SELECT domain, expire_at FROM domain_cache WHERE domain IN (%s)"
+               % ','.join(['?'] * len(part)))
+        for r in c.execute(sql, part).fetchall():
+            if not r['expire_at'] or r['expire_at'] > now:
+                found.add(r['domain'])
+    return found
 
 
 def cache_put(domain, site_name, geo_tag, ttl_hours=24):
