@@ -7,7 +7,8 @@ DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "syslog.db")
 
 # syslog UDP 监听端口（标准 514；Windows 无需管理员即可绑定，但需放行防火墙）
-SYSLOG_UDP_HOST = "0.0.0.0"
+# 只监听物理网卡 lan1 的 IP（192.168.31.41），不监听虚拟网卡
+SYSLOG_UDP_HOST = "192.168.31.41"
 SYSLOG_UDP_PORT = 514
 
 # Web 后台监听
@@ -22,7 +23,7 @@ DEFAULT_ADMIN_PASS = "admin123"
 KEEP_DAYS = 30
 
 # 版本号（展示于后台左上角）
-APP_VERSION = "v3.0"
+APP_VERSION = "v3.1"
 
 # Flask session 密钥（首次启动随机生成并持久化到 data/.secret_key）
 SECRET_KEY_FILE = os.path.join(DATA_DIR, ".secret_key")

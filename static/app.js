@@ -1,5 +1,16 @@
 // 页面逻辑
 const api = (p) => fetch(p).then(r => r.json());
+const escapeHtml = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+  {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+));
+
+// 网站名/域名点击切换：所有 .site-txt 统一处理（网站名/未知 <-> 域名），避免各页面重复绑定
+document.addEventListener('click', e => {
+  const txt = e.target.closest('.site-txt');
+  if (!txt) return;
+  const d = txt.getAttribute('data-domain');
+  txt.textContent = (txt.textContent === d) ? (txt.getAttribute('data-site') || '未知') : d;
+});
 
 function fillLocalDefault() {
   // datetime-local 默认值：最近 1 小时
@@ -95,8 +106,8 @@ if (document.getElementById('mCpu')) {
     });
   }
   function loadRangeCharts() {
-    api('/api/stats/domains?limit=10&' + rangeQs()).then(d => Charts.bars('domBars', d, k => goLogs({keyword:k})));
-    api('/api/stats/apps?limit=10&' + rangeQs()).then(d => Charts.bars('appBars', d, k => goLogs({app_name:k}), {showIcons:true}));
+    api('/api/stats/domains?limit=10&' + rangeQs()).then(d => Charts.bars('domBars', d, k => goLogs({keyword:k}), {showSiteName:true}));
+    api('/api/stats/apps?limit=30&' + rangeQs()).then(d => Charts.tagCloud('appBars', d, k => goLogs({app_name:k})));
     api('/api/stats/app_categories?' + rangeQs()).then(d => Charts.donut('catChart', d));
     api('/api/stats/protocol_top?' + rangeQs()).then(d => Charts.bars('protoBars', d));
     // 终端IP TOP10（单列，与其它图表同宽；IP 后显示备注名，在线绿色/离线灰色）
@@ -208,6 +219,18 @@ if (document.getElementById('logBody')) {
     q.forEach((v,k)=>{ if(!v) q.delete(k); });
     return q;
   }
+  function escHtml(s) {
+    return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+  // 应用名列：域名已解析出网站名时，优先显示网站名（无则"未知"）+境内绿点/非境内黄点，点击切换域名；否则显示应用名
+  function renderAppName(r) {
+    const site = (r.site_name||'').trim();
+    if (r.domain && site) {
+      const dot = r.geo_tag === 'CN' ? 'dot-green' : 'dot-yellow';
+      return `<span class="dot ${dot}"></span><span class="site-txt" data-domain="${escHtml(r.domain)}" data-site="${escHtml(site)}" title="${escHtml(r.domain)}">${escHtml(site)}</span>`;
+    }
+    return escHtml(r.app_name||'');
+  }
   function loadLogs() {
     const q = buildLogsQs();
     api('/api/logs?' + q.toString()).then(d => {
@@ -229,7 +252,7 @@ if (document.getElementById('logBody')) {
           <td>${renderHostCell(r)}</td>
           <td><span class="tag tag-${r.event_type}">${TAG[r.event_type]||r.event_type}</span></td>
           <td>${r.app_category||''}</td>
-          <td>${r.app_name||''}</td>
+          <td>${renderAppName(r)}</td>
           <td>${r.domain||r.url||''}</td>
           <td class="raw" title="${(r.raw||'').replace(/"/g,'&quot;')}">${r.raw||''}</td>
         </tr>`).join('');
@@ -293,7 +316,26 @@ if (document.getElementById('exportBtn')) {
   api('/api/settings').then(s => {
     document.getElementById('setDays').value = s.keep_days;
     document.getElementById('dropWebUsage').checked = !!s.drop_web_usage;
+    const cc = document.getElementById('setConcurrency');
+    if (cc) cc.value = s.dns_concurrency;
+    const de = document.getElementById('dnsEnabled');
+    if (de) de.checked = !!s.dns_enabled;
+    const dh = document.getElementById('dnsHost');
+    if (dh) dh.value = s.dns_host;
+    const dp = document.getElementById('dnsPort');
+    if (dp) dp.value = s.dns_port;
   });
+  const saveDnsBtn = document.getElementById('saveDnsBtn');
+  if (saveDnsBtn) saveDnsBtn.onclick = async () => {
+    const on = document.getElementById('dnsEnabled').checked;
+    const host = document.getElementById('dnsHost').value.trim();
+    const port = parseInt(document.getElementById('dnsPort').value);
+    if (!host) { document.getElementById('dnsResult').textContent = '接口服务器地址不能为空'; return; }
+    if (!port || port < 1 || port > 65535) { document.getElementById('dnsResult').textContent = '端口须在 1-65535 之间'; return; }
+    const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dns_enabled: on, dns_host: host, dns_port: port})}).then(r=>r.json());
+    document.getElementById('dnsResult').textContent = r.ok ? `已保存：网站名称查询${on?'开启':'关闭'}，接口 ${host}:${port}` : ('失败: '+(r.error||''));
+  };
   document.getElementById('saveDaysBtn').onclick = async () => {
     const days = parseInt(document.getElementById('setDays').value);
     const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
@@ -308,12 +350,87 @@ if (document.getElementById('exportBtn')) {
       ? (on ? '已开启：上网行为日志将被丢弃（约 2 秒内生效）' : '已关闭：上网行为日志将正常入库（约 2 秒内生效）')
       : ('失败: '+(r.error||''));
   };
+  const concBtn = document.getElementById('saveConcBtn');
+  if (concBtn) concBtn.onclick = async () => {
+    const conc = parseInt(document.getElementById('setConcurrency').value);
+    if (!conc || conc < 1 || conc > 100) {
+      document.getElementById('concResult').textContent = '并发数须在 1-100 之间';
+      return;
+    }
+    const r = await fetch('/api/settings', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({dns_concurrency: conc})}).then(r=>r.json());
+    document.getElementById('concResult').textContent = r.ok ? `已保存：域名解析并发数 ${conc}` : ('失败: '+(r.error||''));
+  };
+  const resetBreakerBtn = document.getElementById('resetBreakerBtn');
+  if (resetBreakerBtn) resetBreakerBtn.onclick = async () => {
+    const r = await fetch('/api/resolver/reset', {method:'POST'}).then(r=>r.json());
+    document.getElementById('breakerResult').textContent = r.ok ? '已重置域名解析熔断' : ('失败: '+(r.error||''));
+  };
+  const clearCacheBtn = document.getElementById('clearCacheBtn');
+  const loadCacheCount = async () => {
+    const el = document.getElementById('cacheCount');
+    if (!el) return;
+    try {
+      const r = await fetch('/api/resolver/cache_count').then(r=>r.json());
+      el.textContent = r.ok ? r.count : '-';
+    } catch(e) { el.textContent = '-'; }
+  };
+  loadCacheCount();
+  if (clearCacheBtn) clearCacheBtn.onclick = async () => {
+    if (!confirm('确认清空全部域名缓存？清空后下次命中会重新调用接口解析。')) return;
+    const r = await fetch('/api/resolver/clear_cache', {method:'POST'}).then(r=>r.json());
+    document.getElementById('clearCacheResult').textContent = r.ok ? (r.msg||'已清空域名缓存') : ('失败: '+(r.error||''));
+    loadCacheCount();
+  };
   document.getElementById('restartBtn').onclick = async () => {
     if (!confirm('确认重启服务？重启期间约 3 秒无法访问。')) return;
     const r = await fetch('/api/restart', {method:'POST'}).then(r=>r.json());
     document.getElementById('restartResult').textContent = r.msg || '重启中...';
     setTimeout(() => window.location.href = '/', 3000);
   };
+  // ---------- 排除 IP 管理 ----------
+  const exIpBody = document.getElementById('exIpBody');
+  const loadExcludedIps = async () => {
+    if (!exIpBody) return;
+    const r = await fetch('/api/admin/excluded_ips').then(r=>r.json()).catch(()=>({ok:false}));
+    const empty = document.getElementById('exIpEmpty');
+    if (!r.ok || !r.ips || !r.ips.length) {
+      exIpBody.innerHTML = '';
+      if (empty) empty.style.display = '';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+    exIpBody.innerHTML = r.ips.map(x => `
+      <tr>
+        <td>${escapeHtml(x.ip)}</td>
+        <td>${escapeHtml(x.note || '')}</td>
+        <td>${escapeHtml(x.created_at || '')}</td>
+        <td><button class="danger" data-del="${escapeHtml(x.ip)}">删除</button></td>
+      </tr>`).join('');
+  };
+  document.getElementById('addExIpBtn')?.addEventListener('click', async () => {
+    const ip = document.getElementById('exIpInput').value.trim();
+    const note = document.getElementById('exNoteInput').value.trim();
+    const res = document.getElementById('exIpResult');
+    if (!ip) { res.textContent = '请输入要排除的 IP'; return; }
+    const r = await fetch('/api/admin/excluded_ips', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ip, note})}).then(r=>r.json());
+    res.textContent = r.ok ? r.msg : ('失败: '+(r.error||''));
+    if (r.ok) {
+      document.getElementById('exIpInput').value = '';
+      document.getElementById('exNoteInput').value = '';
+      loadExcludedIps();
+    }
+  });
+  exIpBody?.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-del]');
+    if (!btn) return;
+    if (!confirm(`确认移除排除 IP ${btn.dataset.del}？`)) return;
+    const r = await fetch('/api/admin/excluded_ips?ip=' + encodeURIComponent(btn.dataset.del), {method:'DELETE'}).then(r=>r.json());
+    document.getElementById('exIpResult').textContent = r.ok ? r.msg : ('失败: '+(r.error||''));
+    loadExcludedIps();
+  });
+  loadExcludedIps();
 }
 
 // ---------- 改密 ----------
@@ -331,8 +448,10 @@ if (document.getElementById('hostBody')) {
   const HOST_SIZE = 20;
   function loadHosts() {
     const kw = document.getElementById('hKw').value.trim();
+    const off = document.getElementById('hOffline') ? document.getElementById('hOffline').value : '';
     const q = new URLSearchParams({page: hostPage, size: HOST_SIZE});
     if (kw) q.set('keyword', kw);
+    if (off) q.set('offline_days', off);
     api('/api/hosts?' + q.toString()).then(d => {
       document.getElementById('onlineCnt').textContent = d.online_total;
       document.getElementById('allCnt').textContent = d.all_total;
@@ -378,6 +497,8 @@ if (document.getElementById('hostBody')) {
     });
   }
   document.getElementById('hSearch').onclick = () => { hostPage = 1; loadHosts(); };
+  const hOff = document.getElementById('hOffline');
+  if (hOff) hOff.onchange = () => { hostPage = 1; loadHosts(); };
   document.getElementById('hExport').onclick = () => { window.location = '/api/hosts.csv'; };
   document.getElementById('hImport').onclick = () => document.getElementById('hCsvFile').click();
   document.getElementById('hCsvFile').addEventListener('change', async () => {

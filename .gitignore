@@ -4,3 +4,8 @@ __pycache__/
 *.pyc
 _run_hidden.vbs
 *.log
+
+# 本地备份 / 打包 / 临时分析脚本
+*.bak
+*.zip
+tools/

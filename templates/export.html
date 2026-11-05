@@ -1,52 +1,109 @@
 {% extends "base.html" %}
-{% block title %}导出与清理 - 网络日志分析{% endblock %}
+{% block title %}导入与清理 - 网络日志分析{% endblock %}
 {% block body %}
-<h2>日志导出与清理</h2>
+<h2>导入、导出与系统设置</h2>
+<p class="hint" style="margin:0 0 14px">当前数据库大小：{{ '%.1f'|format(db_size/1024/1024) if db_size else '0.0' }} MB</p>
 
 <div class="panel">
-  <h3>按时间段导出 CSV</h3>
+  <h3>日志导入</h3>
+  <div class="filterbar">
+    <label>选择历史 CSV 文件（TP-Link 导出格式）<input type="file" id="csvFile" accept=".csv"></label>
+    <button id="importBtn">导入</button>
+  </div>
+  <div id="importResult" class="hint"></div>
+</div>
+
+<div class="panel">
+  <h3>日志导出与清理</h3>
+  <p class="hint" style="margin-top:0">按时间段导出 CSV；导出后可用下方按钮清空该时间段已导出的日志（不可恢复）。</p>
   <div class="filterbar">
     <label>开始 <input type="datetime-local" id="eStart"></label>
     <label>结束 <input type="datetime-local" id="eEnd"></label>
     <button id="exportBtn">导出 CSV</button>
-  </div>
-  <p class="hint">导出后可使用下方按钮清空该时间段已导出的日志（不可恢复）。</p>
-
-  <h3 style="margin-top:20px">清空已导出日志</h3>
-  <div class="filterbar">
     <button id="clearBtn" class="danger">清空所选时间段日志</button>
   </div>
   <div id="clearResult" class="hint"></div>
 </div>
 
 <div class="panel">
-  <h3>导入历史 CSV（TP-Link 导出格式）</h3>
-  <input type="file" id="csvFile" accept=".csv">
-  <button id="importBtn">导入</button>
-  <div id="importResult" class="hint"></div>
-</div>
+  <h3>日志保留与过滤</h3>
 
-<div class="panel">
-  <h3>系统设置</h3>
   <div class="filterbar">
     <label>日志自动保留 <input type="number" id="setDays" min="1" max="3650" style="width:80px"> 天</label>
     <button id="saveDaysBtn">保存</button>
     <span id="daysResult" class="hint"></span>
   </div>
   <p class="hint">超过保留天数的日志会每小时自动清理。默认 30 天。</p>
+
   <div class="filterbar" style="margin-top:14px">
     <label class="chk" style="align-items:center;gap:8px">
       <input type="checkbox" id="dropWebUsage" style="width:auto">
-      <span>不保存上网行为日志（开启后，syslog 监听到的"上网行为"类型日志将全部丢弃，不再入库）</span>
+      <span>不保存上网行为日志（开启后，"上网行为"类型日志将全部丢弃，不再入库）</span>
     </label>
     <button id="saveDropBtn">保存</button>
     <span id="dropResult" class="hint"></span>
   </div>
   <p class="hint">开启后立即生效（约 2 秒内），已入库的上网行为日志不受影响；丢弃不影响 behavior_ctl 等其他类型日志。</p>
-  <h3 style="margin-top:20px">服务操作</h3>
+  <p class="hint" style="margin-top:4px">说明："上网行为"日志与路由器系统日志中的"行为管控"（behavior_ctl）日志内容高度重复（实测两类日志几乎逐条成对），同一行为会在统计中被重复计算。日常只保留 behavior_ctl 即可完整覆盖这些行为记录；关闭保存上网行为日志可减少约一半入库量，明显减轻采集与查询压力，同时让统计口径更准确。</p>
+
+  <h3 style="margin-top:20px">排除 IP 列表</h3>
+  <p class="hint" style="margin-top:0">列表中的 IP（终端访问 IP 或来源设备 IP）一旦命中，其访问日志将直接丢弃：不入库、不调用网站名查询。约 2 秒内生效。</p>
+  <div class="filterbar">
+    <label>排除 IP <input type="text" id="exIpInput" placeholder="如 192.168.0.35" style="width:140px"></label>
+    <label>备注 <input type="text" id="exNoteInput" placeholder="可选" style="width:160px"></label>
+    <button id="addExIpBtn">添加</button>
+    <span id="exIpResult" class="hint"></span>
+  </div>
+  <div style="margin-top:12px">
+    <table class="tbl">
+      <thead><tr><th>IP</th><th>备注</th><th>添加时间</th><th style="width:70px"></th></tr></thead>
+      <tbody id="exIpBody"></tbody>
+    </table>
+    <p id="exIpEmpty" class="hint">尚未添加排除 IP。</p>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>域名解析（网站名查询）</h3>
+
+  <div class="filterbar">
+    <label class="chk" style="align-items:center;gap:8px">
+      <input type="checkbox" id="dnsEnabled" style="width:auto">
+      <span>网站名称查询 <span class="hint">开启后日志域名/IP 请求接口解析为网站名（默认开启）</span></span>
+    </label>
+    <button id="saveDnsBtn">保存</button>
+    <span id="dnsResult" class="hint"></span>
+  </div>
+  <div class="filterbar" style="margin-top:8px">
+    <label>接口服务器地址 <input type="text" id="dnsHost" style="width:130px" placeholder="127.0.0.1"> </label>
+    <label>端口 <input type="number" id="dnsPort" min="1" max="65535" style="width:70px"> </label>
+    <span class="hint">（地址+端口需与"保存"一起提交）</span>
+  </div>
+  <p class="hint">关闭查询开关后不再调用接口解析域名；接口服务器地址/端口用于对接 site-name-service，默认 127.0.0.1:888。</p>
+
+  <div class="filterbar" style="margin-top:14px">
+    <label>域名解析并发数 <input type="number" id="setConcurrency" min="1" max="100" style="width:80px"> </label>
+    <button id="saveConcBtn">保存</button>
+    <span id="concResult" class="hint"></span>
+  </div>
+  <p class="hint">域名/IP→网站名异步解析的并发线程数（默认 20），保存后即时生效。</p>
+
+  <div class="filterbar" style="margin-top:14px">
+    <span>当前域名缓存：<b id="cacheCount">-</b> 条</span>
+    <button id="clearCacheBtn" class="danger" style="margin-left:12px">清空域名缓存</button>
+    <span id="clearCacheResult" class="hint"></span>
+    <button id="resetBreakerBtn" style="margin-left:8px">重置域名解析熔断</button>
+    <span id="breakerResult" class="hint"></span>
+  </div>
+  <p class="hint">清空后，已入库日志中的域名在下次命中时会重新调用接口解析；解析接口多次连续超时会自动熔断停查 30 分钟，接口恢复后可点"重置熔断"立即恢复。</p>
+</div>
+
+<div class="panel">
+  <h3>服务操作</h3>
   <div class="filterbar">
     <button id="restartBtn" class="danger">重启服务</button>
     <span id="restartResult" class="hint"></span>
   </div>
+  <p class="hint">重启期间约 3 秒无法访问。</p>
 </div>
 {% endblock %}

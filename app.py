@@ -28,6 +28,7 @@ def _icon_urlopen(url, timeout=5):
     return opener.open(req, timeout=timeout)
 import parser
 import syslogd
+import domain_resolver
 
 app = Flask(__name__)
 app.config['APP_VERSION'] = config.APP_VERSION
@@ -147,7 +148,15 @@ def logs_page():
 @app.route('/export')
 @login_required
 def export_page():
-    return render_template('export.html')
+    size = 0
+    for suffix in ('', '-wal', '-shm'):
+        p = config.DB_PATH + suffix
+        try:
+            if os.path.exists(p):
+                size += os.path.getsize(p)
+        except OSError:
+            pass
+    return render_template('export.html', db_size=size)
 
 
 @app.route('/hosts')
@@ -479,6 +488,19 @@ def _attach_host_notes(rows):
     return rows
 
 
+def _attach_site_names(rows, key='k'):
+    """为域名排行/日志行附加网站名与境内外标记（查表A domain_site，供前端优先显示网站名+绿/黄点）。"""
+    if not rows:
+        return rows
+    doms = [r.get(key) for r in rows if r.get(key)]
+    infos = db.site_infos(doms)
+    for r in rows:
+        info = infos.get(r.get(key))
+        r['site_name'] = (info['site_name'] if info else '') or ''
+        r['geo_tag'] = (info['geo_tag'] if info else '') or ''
+    return rows
+
+
 @app.route('/api/stats/hosts')
 @login_required
 @ttl_cache(10)
@@ -513,7 +535,9 @@ def api_host_top():
     host = request.args.get('host_ip', '')
     if not host:
         return jsonify({'apps': [], 'domains': []})
-    return jsonify(db.host_top_apps_domains(host, s, e))
+    data = db.host_top_apps_domains(host, s, e)
+    _attach_site_names(data.get('domains') or [])
+    return jsonify(data)
 
 
 @app.route('/api/stats/domains')
@@ -521,7 +545,9 @@ def api_host_top():
 @ttl_cache(10)
 def api_domains():
     s, e = _range()
-    return db.top_domains(int(request.args.get('limit', 10)), s, e)
+    rows = db.top_domains(int(request.args.get('limit', 10)), s, e)
+    _attach_site_names(rows)
+    return rows
 
 
 @app.route('/api/stats/app_categories')
@@ -567,6 +593,8 @@ def api_stats_all(chart_type):
     all_rows = handlers[chart_type]()
     if chart_type in ('hosts', 'entertainment_hosts'):
         all_rows = _attach_host_notes(all_rows)
+    if chart_type == 'domains':
+        all_rows = _attach_site_names(all_rows)
     total = len(all_rows)
     paged = all_rows[(page-1)*size:page*size]
     return jsonify({'total': total, 'page': page, 'size': size, 'rows': paged})
@@ -617,8 +645,13 @@ def api_logs():
     total, rows = db.query_logs(start, end, host_ip, event_type,
                                app_category, app_name, keyword, page, size)
     note_map = db.host_note_map_by_ip()
+    doms = [r.get('domain') for r in rows if r.get('domain')]
+    sinfos = db.site_infos(doms)
     for r in rows:
         r['host_note'] = note_map.get(r.get('host_ip'), '')
+        info = sinfos.get(r.get('domain'))
+        r['site_name'] = (info['site_name'] if info else '') or ''
+        r['geo_tag'] = (info['geo_tag'] if info else '') or ''
     return jsonify({'total': total, 'page': page, 'size': size, 'rows': rows})
 
 
@@ -629,7 +662,9 @@ def api_hosts():
     kw = request.args.get('keyword') or None
     page = int(request.args.get('page', 1))
     size = int(request.args.get('size', 20))
-    return jsonify(db.list_hosts_page(kw, page, size))
+    off = request.args.get('offline_days')
+    offline_days = int(off) if off and str(off).isdigit() else None
+    return jsonify(db.list_hosts_page(kw, page, size, offline_days))
 
 
 @app.route('/api/hosts/note', methods=['POST'])
@@ -733,7 +768,13 @@ def api_device_toggle():
 def api_get_settings():
     days = db.get_setting('keep_days', config.KEEP_DAYS)
     drop = db.get_setting('drop_web_usage', '0')
-    return jsonify({'keep_days': int(days), 'drop_web_usage': str(drop) == '1'})
+    conc = db.get_setting('dns_concurrency', 20)
+    enabled = db.get_setting('dns_enabled', '1')
+    host = db.get_setting('dns_host', '127.0.0.1')
+    port = db.get_setting('dns_port', 888)
+    return jsonify({'keep_days': int(days), 'drop_web_usage': str(drop) == '1',
+                    'dns_concurrency': int(conc), 'dns_enabled': str(enabled) != '0',
+                    'dns_host': host, 'dns_port': int(port)})
 
 
 @app.route('/api/settings', methods=['POST'])
@@ -748,7 +789,93 @@ def api_set_settings():
         db.set_setting('keep_days', days)
     if 'drop_web_usage' in data:
         db.set_setting('drop_web_usage', '1' if data.get('drop_web_usage') else '0')
+    if 'dns_concurrency' in data:
+        conc = int(data.get('dns_concurrency', 20))
+        if conc < 1 or conc > 100:
+            return jsonify({'ok': False, 'error': '并发数须在 1-100 之间'}), 400
+        db.set_setting('dns_concurrency', conc)
+    if 'dns_enabled' in data:
+        db.set_setting('dns_enabled', '1' if data.get('dns_enabled') else '0')
+    if 'dns_host' in data:
+        host = str(data.get('dns_host', '')).strip()
+        if not host:
+            return jsonify({'ok': False, 'error': '接口服务器地址不能为空'}), 400
+        db.set_setting('dns_host', host)
+    if 'dns_port' in data:
+        port = int(data.get('dns_port', 888))
+        if port < 1 or port > 65535:
+            return jsonify({'ok': False, 'error': '端口须在 1-65535 之间'}), 400
+        db.set_setting('dns_port', port)
     return jsonify({'ok': True})
+
+
+@app.route('/api/resolver/reset', methods=['POST'])
+@login_required
+@mutate_required
+def api_resolver_reset():
+    """手动重置域名解析熔断状态（不重启服务）。"""
+    domain_resolver.reset()
+    return jsonify({'ok': True, 'msg': '已重置域名解析熔断'})
+
+
+@app.route('/api/resolver/clear_cache', methods=['POST'])
+@login_required
+@mutate_required
+def api_resolver_clear_cache():
+    """清空域名缓存表(domain_cache)。清空后，下次日志命中会重新调用接口解析。"""
+    try:
+        n = db.clear_cache()
+        return jsonify({'ok': True, 'msg': f'已清空域名缓存 {n} 条', 'cleared': n})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/resolver/cache_count', methods=['GET'])
+@login_required
+def api_resolver_cache_count():
+    """返回域名缓存表当前条数，供后台显示。"""
+    try:
+        return jsonify({'ok': True, 'count': db.cache_count()})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/excluded_ips', methods=['GET'])
+@login_required
+def api_list_excluded_ips():
+    """返回排除 IP 列表。"""
+    try:
+        return jsonify({'ok': True, 'ips': db.list_excluded_ips()})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
+
+@app.route('/api/admin/excluded_ips', methods=['POST'])
+@login_required
+@mutate_required
+def api_add_excluded_ip():
+    """添加排除 IP，立即刷新 syslogd 过滤集合。"""
+    data = request.get_json(force=True)
+    ip = str(data.get('ip', '')).strip()
+    note = str(data.get('note', '')).strip()
+    ok, msg = db.add_excluded_ip(ip, note)
+    if not ok:
+        return jsonify({'ok': False, 'error': msg}), 400
+    syslogd.refresh_excluded_ips()
+    return jsonify({'ok': True, 'msg': f'已添加排除 IP {ip}'})
+
+
+@app.route('/api/admin/excluded_ips', methods=['DELETE'])
+@login_required
+@mutate_required
+def api_remove_excluded_ip():
+    """移除排除 IP，立即刷新 syslogd 过滤集合。"""
+    ip = request.args.get('ip', '').strip()
+    if not ip:
+        return jsonify({'ok': False, 'error': '缺少 ip 参数'}), 400
+    db.remove_excluded_ip(ip)
+    syslogd.refresh_excluded_ips()
+    return jsonify({'ok': True, 'msg': f'已移除排除 IP {ip}'})
 
 
 @app.route('/api/restart', methods=['POST'])
@@ -883,6 +1010,7 @@ def api_import_csv():
 
 # ---------- 启动 ----------
 def _prune_loop():
+    time.sleep(60)  # 首轮延迟 60 秒，避开启动期 backfill/入库高峰，减少写锁竞争
     while True:
         try:
             days = int(db.get_setting('keep_days', config.KEEP_DAYS))
@@ -896,6 +1024,7 @@ if __name__ == '__main__':
     db.init_db()
     threading.Thread(target=db.backfill_hourly, daemon=True).start()  # 后台回填 hourly 汇总表
     syslogd.start_async()
+    domain_resolver.start()
     threading.Thread(target=_prune_loop, daemon=True).start()
     print(f"[web] 后台地址 http://localhost:{config.WEB_PORT}")
     app.run(host=config.WEB_HOST, port=config.WEB_PORT, debug=False)

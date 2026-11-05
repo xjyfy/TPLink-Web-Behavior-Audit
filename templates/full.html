@@ -42,6 +42,8 @@
 const CHART = {{ chart_type|tojson }};
 let pageNum = 1;
 const SIZE = 20;
+const esc = s => String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+// 网站名/域名点击切换由 app.js 全局事件委托统一处理
 // 继承总览页打开时的时间范围（若无则按全量统计）
 const SP = new URLSearchParams(location.search);
 const RANGE = (SP.get('start') && SP.get('end'))
@@ -72,13 +74,20 @@ function load() {
           ? `<span class="ip ${r.online?'online':'offline'}">${name}</span>`
           : name;
         const noteHtml = (r.note) ? `<span class="note" title="${r.note}">${r.note}</span>` : '';
+        // 热门网站完整列表：优先显示网站名（无则"未知"）+境内绿点/非境内黄点，点击切换域名
+        const siteHtml = (CHART === 'domains')
+          ? `<span class="dot ${r.geo_tag === 'CN' ? 'dot-green' : 'dot-yellow'}"></span>` +
+            `<span class="site-txt" data-domain="${esc(name)}" data-site="${esc((r.site_name||'').trim())}" title="${esc(name)}">${(r.site_name||'').trim() ? esc((r.site_name||'').trim()) : '未知'}</span>`
+          : '';
         const nameCell = (CHART === 'app_categories')
           ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该类别的具体应用">▸ ${icon}${name}</td>`
           : (CHART === 'entertainment_hosts')
               ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该终端的娱乐应用明细">▸ ${icon}${ipHtml}${noteHtml}</td>`
               : (CHART === 'hosts')
                   ? `<td class="cat-toggle" data-cat="${name}" title="点击展开该终端的 Top10 应用与网站">▸ ${ipHtml}${noteHtml}</td>`
-                  : `<td>${icon}${ipHtml}${noteHtml}</td>`;
+                  : (CHART === 'domains')
+                      ? `<td>${siteHtml}</td>`
+                      : `<td>${icon}${ipHtml}${noteHtml}</td>`;
         return `
         <tr>
           <td>${(d.page-1)*SIZE + i + 1}</td>
@@ -168,7 +177,11 @@ function bindHostsToggles() {
           ? apps.map(a => `<div class="cat-app-row"><span class="cat-app-name"><img src="/app_icon/${encodeURIComponent(a.k)}" class="app-icon" onerror="this.style.display='none'"> ${esc(a.k)}</span><span class="cat-app-count">${a.n}</span></div>`).join('')
           : '<span style="color:#999">(暂无应用数据)</span>';
         const webHtml = domains.length
-          ? domains.map(a => `<div class="cat-app-row"><span class="cat-app-name">${esc(a.k)}</span><span class="cat-app-count">${a.n}</span></div>`).join('')
+          ? domains.map(a => {
+              const site = (a.site_name||'').trim();
+              const dot = a.geo_tag === 'CN' ? 'dot-green' : 'dot-yellow';
+              return `<div class="cat-app-row"><span class="cat-app-name"><span class="dot ${dot}"></span><span class="site-txt" data-domain="${esc(a.k)}" data-site="${esc(site)}" title="${esc(a.k)}">${site ? esc(site) : '未知'}</span></span><span class="cat-app-count">${a.n}</span></div>`;
+            }).join('')
           : '<span style="color:#999">(暂无网站数据)</span>';
         child.innerHTML = `<td></td><td colspan="2" style="padding:6px 0 6px 30px;">
           <div class="cat-group-title">Top10 应用</div>${appHtml}

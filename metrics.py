@@ -7,13 +7,15 @@ _prev = {'ts': None, 'up': None, 'down': None}
 
 
 def _net_link_speed():
-    """主用网卡链路速率（Mbps）与名称：取在线、非回环、速率最大的网卡。"""
+    """主用网卡链路速率（Mbps）与名称：取在线、非回环、非虚拟(tailscale/virtualbox/vmware)、速率最大的物理网卡。"""
     best, best_name = 0, ''
+    # 排除虚拟网卡：tailscale / virtualbox / vmware / 回环
+    _EXCLUDE = ('tailscale', 'virtualbox', 'vmware', 'loopback')
     try:
         for name, st in psutil.net_if_stats().items():
             if not st.isup or not st.speed or st.speed <= 0:
                 continue
-            if name.lower().startswith('loopback'):
+            if any(k in name.lower() for k in _EXCLUDE):
                 continue
             if st.speed > best:
                 best, best_name = st.speed, name

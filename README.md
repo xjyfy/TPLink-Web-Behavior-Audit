@@ -1,4 +1,4 @@
-# TPLink 上网行为审计（SyslogAudit）v3.0
+# TPLink 上网行为审计（SyslogAudit）v3.1
 
 一款**替代 TP-Link 官方审计软件**的开源上网行为审计系统。面向 TP-Link ER3228ET（理论上所有tplink带行为审计的企业路由器都支持） 等支持 syslog 远程日志的路由器/网络设备，自动采集终端上网日志并提供现代化的 **Web 可视化审计后台**。
 
@@ -61,7 +61,7 @@
 
   ![导出与清理](docs/screenshots/07-导出与清理.png)
 
-## 安装步骤（v3.0，Windows 10 / Server 2016+）
+## 安装步骤（v3.1，Windows 10 / Server 2016+）
 
 1. **拷贝**：将整个 `syslog` 文件夹拷贝到目标机器任意目录（**路径不要含中文和空格**，如 `D:\syslog\`）。
 2. **一键安装**：右键 `install.bat` → **以管理员身份运行**。脚本自动完成：
@@ -94,6 +94,7 @@
 ```
 syslog/
 ├── app.py / config.py / db.py / parser.py / syslogd.py / metrics.py   # 主程序
+├── domain_resolver.py         # 域名/IP ↔ 网站名解析（带 24h 缓存）
 ├── watchdog.py                # 服务看门狗（自愈 + 日志）
 ├── install.bat                # 一键安装
 ├── install_service.bat        # 注册开机自启（指向看门狗）
@@ -113,5 +114,6 @@ Python 3.10+、Flask、SQLite、psutil；前端原生 HTML/CSS/JS + ECharts 图�
 
 ## 版本
 
+- **v3.1**（2026-11-05）：修复 syslog 接收端吞吐瓶颈（接收/处理分离 + 批量入库，留存率 12% → 99.9%+）、DNS/网站名解析与 24h 缓存、终端"最后在线"改由入库路径维护、终端管理新增长期离线（1/3/6 个月）筛选、数据清理 `DELETE ... LIMIT` 语法错误与启动期 `database is locked` 修复、导出与清理页补充上网行为日志说明。详见 `VERSION.txt`。
 - **v3.0**（2026-10-29）：应用类别统计表+日志类别多选下拉、用户管理（系统管理员/管理员/审计）、设备禁用/启用、终端在线着色、终端完整列表展开 Top10 应用/网站、日志查询导出 CSV、终端 CSV 导入导出/搜索/删除。详见 `修改记录.md`。
 - **v2.1/v2.2**（2026-10-28）：修复安装与环境问题，新增看门狗自愈、脱离宿主独立运行、应用图标上传、移动端适配等。详见 `修改记录.md`。

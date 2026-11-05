@@ -32,7 +32,8 @@ const Charts = {
       });
       ctx.stroke();
       for(let i=0;i<values.length;i+=Math.ceil(values.length/8)){
-        ctx.fillText(labels[i].slice(5,10), padL+i*stepX-14, H-8);
+        const lb = (labels[i]&&labels[i].length>=16) ? labels[i].slice(11,16) : (labels[i]?labels[i].slice(5,10):'');
+        ctx.fillText(lb, padL+i*stepX-14, H-8);
       }
       if (hiIdx!=null && hiIdx>=0 && hiIdx<values.length) {
         const cx=padL+hiIdx*stepX, cy=H-padB-(values[hiIdx]/max)*(H-padT-padB);
@@ -110,9 +111,18 @@ const Charts = {
         ? `<span class="note" title="${note}">${note}</span>`
         : '';
       // 在线着色：opts.showOnline 且后端给出 online 标记时，IP 用绿(在线)/灰(离线)
-      const ipHtml = opts.showNote
-        ? `<span class="ip ${opts.showOnline ? (it.online ? 'online' : 'offline') : ''}">${it.k||'(空)'}</span>`
-        : (it.k||'(空)');
+      // 网站名展示：opts.showSiteName 时优先显示网站名(无则"未知")+境内绿点/非境内黄点，点击切换为域名
+      let ipHtml;
+      if (opts.showSiteName) {
+        const site = (it.site_name||'').trim();
+        const dot = it.geo_tag === 'CN' ? 'dot-green' : 'dot-yellow';
+        ipHtml = `<span class="dot ${dot}"></span>` +
+                 `<span class="site-txt" data-domain="${k}" data-site="${site.replace(/"/g,'&quot;')}" title="${k}">${site ? site : '未知'}</span>`;
+      } else if (opts.showNote) {
+        ipHtml = `<span class="ip ${opts.showOnline ? (it.online ? 'online' : 'offline') : ''}">${it.k||'(空)'}</span>`;
+      } else {
+        ipHtml = (it.k||'(空)');
+      }
       return `<div class="bar-row ${onClick?'clickable':''}" data-k="${k}">
         <span class="rank">${(opts.rankField && it[opts.rankField]) ? it[opts.rankField] : i+1}</span>
         <div class="track"><div class="fill" style="width:${pct}%;background:${color}"></div></div>
@@ -123,6 +133,74 @@ const Charts = {
     if (onClick) {
       el.querySelectorAll('.bar-row').forEach(row => {
         row.onclick = () => onClick(row.getAttribute('data-k'));
+      });
+    }
+    // 网站名/域名点击切换由 app.js 全局事件委托统一处理（避免双重触发）
+  },
+
+  // 词云：热门应用展示。字号随热门程度变化 + 每项带应用图标。
+  // 采用螺旋布局：越热门(次数越多)越靠近中心，外圈依次缩小。
+  tagCloud(containerId, items, onClick, opts) {
+    const el = document.getElementById(containerId);
+    if (!el) return;
+    opts = opts || {};
+    if (!items || !items.length) { el.innerHTML=''; return; }
+    // 热门优先（越大越先放、越靠中心）
+    const sorted = items.slice().sort((a,b)=>b.n-a.n);
+    const max = Math.max(...items.map(i=>i.n), 1);
+    const min = Math.min(...items.map(i=>i.n), 0);
+    const span = (max-min) || 1;
+    const minF = 12, maxF = 30;
+    // 离屏 canvas 测量文字宽度，估算每个标签尺寸
+    const mctx = document.createElement('canvas').getContext('2d');
+    const tags = sorted.map((it,i)=>{
+      const name = (it.k==null?'':String(it.k));
+      const size = Math.round(minF + (it.n-min)/span*(maxF-minF));
+      mctx.font = `600 ${size}px sans-serif`;
+      const tw = Math.ceil(mctx.measureText(name).width);
+      // 小词(非热门)随机轻微旋转填缝；热门大词保持水平更醒目
+      const rot = size < 22 ? (Math.random()*44-22)*Math.PI/180 : 0;
+      return { name, size, w: tw+26, h: Math.round(size*1.5)+6, rot,
+               color: PALETTE[i % PALETTE.length], n: it.n };
+    });
+    // 容器尺寸
+    el.style.position='relative'; el.style.overflow='hidden';
+    const W = el.clientWidth || 520;
+    const H = 320;
+    el.style.height = H+'px';
+    const cx = W/2, cy = H/2;
+    // 像素级螺旋放置 + 旋转后包围盒碰撞检测：越热门越靠中心，外圈依次缩小
+    const placed = [];
+    const bbox = t => {
+      const c=Math.abs(Math.cos(t.rot)), s=Math.abs(Math.sin(t.rot));
+      return { w: c*t.w+s*t.h, h: s*t.w+c*t.h };
+    };
+    const collide = (x,y,w,h) => placed.some(p => Math.abs(x-p.x)<(w+p.w)/2 && Math.abs(y-p.y)<(h+p.h)/2);
+    const positions = tags.map(t=>{
+      const bb = bbox(t);
+      let θ=Math.random()*Math.PI*2, r=0, x=cx, y=cy;
+      for (let k=0;k<20000;k++){
+        r += 0.6; θ += 0.1;
+        x = cx + r*Math.cos(θ);
+        y = cy + r*Math.sin(θ);
+        if (!collide(x,y,bb.w,bb.h)){ placed.push({x,y,w:bb.w,h:bb.h}); return {x,y}; }
+        if (r > Math.hypot(W,H)) break;
+      }
+      placed.push({x,y,w:bb.w,h:bb.h});
+      return {x,y};
+    });
+    el.innerHTML = tags.map((t,i)=>{
+      const p = positions[i];
+      const k = (t.name==null?'':String(t.name)).replace(/"/g,'&quot;');
+      const rotDeg = Math.round(t.rot*180/Math.PI);
+      const icon = `<img src="/app_icon/${encodeURIComponent(t.name)}" class="cloud-icon" alt="" onerror="this.style.display='none'"> `;
+      return `<span class="cloud-tag ${onClick?'clickable':''}" data-k="${k}"
+        style="left:${Math.round(p.x)}px;top:${Math.round(p.y)}px;font-size:${t.size}px;color:${t.color};transform:translate(-50%,-50%) rotate(${rotDeg}deg)"
+        title="${t.name||'(空)'}：${t.n} 次">${icon}${t.name||'(空)'}</span>`;
+    }).join('');
+    if (onClick) {
+      el.querySelectorAll('.cloud-tag.clickable').forEach(tag => {
+        tag.onclick = () => onClick(tag.getAttribute('data-k'));
       });
     }
   }

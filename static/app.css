@@ -42,6 +42,11 @@ button.danger:hover { background:#b82c33; }
 .row-between { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
 
 .bars { display:flex; flex-direction:column; gap:6px; }
+/* 热门应用词云：文字大小随热门程度变化 + 应用图标，螺旋布局热门居中外圈缩小 */
+.bars.tagcloud { position:relative; overflow:hidden; }
+.cloud-tag { position:absolute; display:inline-flex; align-items:center; cursor:pointer; font-weight:600; line-height:1.4; white-space:nowrap; transform:translate(-50%,-50%); }
+.cloud-tag.clickable:hover { text-decoration:underline; }
+.cloud-icon { width:18px; height:18px; margin-right:4px; vertical-align:middle; border-radius:4px; object-fit:contain; flex:none; }
 .bar-row { display:flex; align-items:center; gap:8px; font-size:12px; }
 .bar-row .k { width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#444; }
 /* 带备注时：IP 列保持固定 160px，备注名在 IP 后同列左对齐、超长省略，不影响条与次数列对齐 */
@@ -143,6 +148,11 @@ button.danger:hover { background:#b82c33; }
 /* 在线状态点 */
 .dot-online { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2ea44f; margin-right:4px; }
 .dot-offline { display:inline-block; width:8px; height:8px; border-radius:50%; background:#cbd5e1; margin-right:4px; }
+/* 域名/网站名前小圆点：境内=绿，非境内(含UNKNOWN)=黄 */
+.dot-green { display:inline-block; width:8px; height:8px; border-radius:50%; background:#2ea44f; margin-right:4px; vertical-align:middle; }
+.dot-yellow { display:inline-block; width:8px; height:8px; border-radius:50%; background:#eab308; margin-right:4px; vertical-align:middle; }
+.site-txt { cursor:pointer; }
+.site-txt:hover { color:#1f6feb; text-decoration:underline; }
 
 /* 终端统计卡片 */
 .stat-row { display:flex; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
